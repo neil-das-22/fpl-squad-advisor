@@ -3,3 +3,5 @@ __pycache__/
 .env
 data/raw/*.json
 data/processed/*.csv
+data/raw/historical_2025_26/
+backtest/__pycache__/
