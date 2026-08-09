@@ -1,0 +1,9 @@
+requests
+pandas
+numpy
+pulp
+python-dotenv
+pyyaml
+openpyxl
+scikit-learn
+anthropic
