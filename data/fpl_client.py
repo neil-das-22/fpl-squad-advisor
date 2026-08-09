@@ -153,6 +153,14 @@ def load_players_df(bootstrap: dict) -> pd.DataFrame:
         "expected_goal_involvements", "expected_goals_conceded", "bonus", "bps",
         "ict_index", "status", "status_meaning", "chance_of_playing_next_round",
         "news",
+        # Raw defensive-contribution counting stats (CBIT for DEF, CBIRT for
+        # MID/FWD). The API returns these but they were previously dropped,
+        # forcing xp_model to guess every player's DefCon rate from a flat
+        # positional average. Backtesting against real 2025/26 data showed
+        # this costs a 66% hit in DefCon-scorer identification -- see
+        # backtest/results_2025_26.md section 8. season-cumulative totals,
+        # converted to a per-90 rate in xp_model via shrunk_per90_rate().
+        "clearances_blocks_interceptions", "tackles", "recoveries",
     ]
     keep_cols = [c for c in keep_cols if c in df.columns]
     return df[keep_cols]

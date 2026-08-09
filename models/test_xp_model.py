@@ -103,10 +103,27 @@ def test_start_probability_and_minutes():
     assert any(f.startswith("availability") for f in flags_doubt)
     assert p_doubt < 0.5
 
-    # No minutes history at all -> flat prior, loudly flagged.
+    # Genuine no-data case (preseason, nobody has a track record) -> flat
+    # prior, loudly flagged.
+    p_preseason, flags_preseason = m.estimate_start_probability(_player("Nwosu"), matches_played=0)
+    assert "start_prob_default" in flags_preseason
+    assert abs(p_preseason - m.DEFAULT_START_PROBABILITY) < 1e-9
+
+    # Too early in the season to tell "hasn't played yet" from "won't play"
+    # apart -> still the flat prior.
+    p_early, flags_early = m.estimate_start_probability(_player("Nwosu"), matches_played=1)
+    assert "start_prob_default" in flags_early
+    assert abs(p_early - m.DEFAULT_START_PROBABILITY) < 1e-9
+
+    # Zero minutes across a real chunk of the season -> that's evidence, not
+    # a missing value. Regression test for the 2025/26 backtest's single
+    # largest error source (backtest/results_2025_26.md section 1b): this
+    # used to return the same 65% flat prior as a genuine GW1 unknown.
     p_new, flags_new = m.estimate_start_probability(_player("Nwosu"), matches_played=38)
-    assert "start_prob_default" in flags_new
-    assert abs(p_new - m.DEFAULT_START_PROBABILITY) < 1e-9
+    assert "start_prob_never_appeared" in flags_new
+    assert "start_prob_default" not in flags_new
+    assert abs(p_new - m.NEVER_APPEARED_START_PROBABILITY) < 1e-9
+    assert p_new < 0.1, "a confirmed non-player should not get a meaningful start chance"
 
     dist = m.minutes_distribution(0.9)
     assert dist["p_60"] <= dist["p_appear"] <= 1.0

@@ -20,14 +20,14 @@ before trusting the metrics.
 **Does the model beat the naive baselines?** Partly, and the honest
 answer depends on which pool you score on.
 
-- On the **full player pool** it does not: MAE 1.898 and
-  Spearman 0.176, versus 1.073 / 0.663 for a season-to-date
+- On the **full player pool** it does not: MAE 1.279 and
+  Spearman 0.613, versus 1.073 / 0.663 for a season-to-date
   points-per-game baseline. That is a clear loss.
 - On the **credible pool** (players with 1+ prior appearance,
-  n=17,164) it wins: MAE 1.686 vs 1.755 for PPG, with
-  Spearman 0.485 vs 0.482 and a better Pearson.
+  n=17,164) it wins: MAE 1.706 vs 1.755 for PPG, with
+  Spearman 0.482 vs 0.482 and a better Pearson.
 - On **top-20 precision**, the metric that maps onto actually
-  picking a squad, it wins on both pools: 34.9% of its top
+  picking a squad, it wins on both pools: 35.9% of its top
   20 picks returned 6+ points versus 30.4% for PPG, against a
   pool base rate of 7.1%.
 
@@ -35,13 +35,13 @@ answer depends on which pool you score on.
 
 **The single biggest problem** is not a constant at all. 39% of the
 player pool has never played a minute, and the model assigns those
-players a 65% chance of starting and 2.22 xP each. They
+players a 2% chance of starting and 0.46 xP each. They
 account for more than 100% of the model's total over-prediction.
 Everything else in this report is small by comparison. Section 1b.
 
 **The DefCon data gap is worth closing.** Giving the model each
 player's own rolling CBIT/CBIRT rate instead of a flat positional
-prior lifts the DefCon top-50 hit rate from 20.7% to 34.5%. Section 8.
+prior lifts the DefCon top-50 hit rate from 24.4% to 34.4%. Section 8.
 
 **Where the model is genuinely good:** on the credible pool it is
 well calibrated component by component — goals, assists, clean
@@ -53,7 +53,7 @@ good shape. The minutes half is where the damage is.
 
 | slice | n | mae | rmse | bias | pearson | spearman | mean_pred | mean_actual |
 |---|---|---|---|---|---|---|---|---|
-| all player-gameweeks | 29338 | 1.898 | 2.461 | 0.774 | 0.240 | 0.176 | 1.947 | 1.173 |
+| all player-gameweeks | 29338 | 1.279 | 2.080 | 0.176 | 0.499 | 0.613 | 1.349 | 1.173 |
 
 
 `bias` is mean(predicted) - mean(actual): positive means the model
@@ -77,10 +77,10 @@ immediately below.
 
 | slice | n | mae | rmse | bias | pearson | spearman | mean_pred | mean_actual |
 |---|---|---|---|---|---|---|---|---|
-| all players | 29338 | 1.898 | 2.461 | 0.774 | 0.240 | 0.176 | 1.947 | 1.173 |
-| credible pool (1+ prior appearances) | 17164 | 1.686 | 2.594 | -0.171 | 0.401 | 0.485 | 1.755 | 1.926 |
-| 3+ prior appearances | 14548 | 1.794 | 2.704 | -0.210 | 0.368 | 0.428 | 1.883 | 2.093 |
-| players who featured (minutes > 0) | 11361 | 1.973 | 3.056 | -0.931 | 0.271 | 0.299 | 2.097 | 3.029 |
+| all players | 29338 | 1.279 | 2.080 | 0.176 | 0.499 | 0.613 | 1.349 | 1.173 |
+| credible pool (1+ prior appearances) | 17164 | 1.706 | 2.590 | -0.100 | 0.400 | 0.482 | 1.826 | 1.926 |
+| 3+ prior appearances | 14548 | 1.816 | 2.701 | -0.132 | 0.366 | 0.424 | 1.961 | 2.093 |
+| players who featured (minutes > 0) | 11361 | 1.977 | 3.038 | -0.871 | 0.276 | 0.305 | 2.157 | 3.029 |
 
 
 ### 1b. Why those two rows differ so much: the never-appeared population
@@ -93,9 +93,9 @@ From GW6 onward, **9,906 player-gameweeks
 recorded **zero minutes in every completed gameweek so far** — squad
 filler, academy names, permanently-benched keepers.
 
-- The model gave them a mean start probability of **0.650** and predicted **2.22 xP** each.
+- The model gave them a mean start probability of **0.020** and predicted **0.46 xP** each.
 - They actually scored **0.015** points on average, and featured at all in **1.1%** of cases.
-- They account for **21,857 points of signed error**, against a whole-pool total of **19,266**.
+- They account for **4,373 points of signed error**, against a whole-pool total of **2,865**.
 
 That last line is the important one: **more than 100% of the model's
 total over-prediction comes from this one group.** Remove them and the
@@ -115,10 +115,10 @@ Whole pool:
 
 | slice | n | mae | rmse | bias | pearson | spearman | mean_pred | mean_actual |
 |---|---|---|---|---|---|---|---|---|
-| GKP | 3383 | 2.042 | 2.295 | 1.407 | 0.327 | 0.392 | 2.164 | 0.758 |
-| DEF | 9601 | 1.970 | 2.555 | 0.688 | 0.243 | 0.201 | 1.942 | 1.254 |
-| MID | 13119 | 1.803 | 2.389 | 0.708 | 0.245 | 0.175 | 1.895 | 1.187 |
-| FWD | 3235 | 1.926 | 2.633 | 0.632 | 0.233 | 0.106 | 1.940 | 1.308 |
+| GKP | 3383 | 1.015 | 1.596 | 0.367 | 0.591 | 0.623 | 1.125 | 0.758 |
+| DEF | 9601 | 1.461 | 2.243 | 0.239 | 0.471 | 0.574 | 1.493 | 1.254 |
+| MID | 13119 | 1.206 | 2.018 | 0.124 | 0.506 | 0.631 | 1.311 | 1.187 |
+| FWD | 3235 | 1.308 | 2.268 | -0.001 | 0.481 | 0.637 | 1.307 | 1.308 |
 
 
 Credible pool (1+ prior appearance) — the like-for-like comparison, since
@@ -128,9 +128,9 @@ the never-appeared population is not evenly spread across positions
 | slice | n | mae | rmse | bias | pearson | spearman | mean_pred | mean_actual |
 |---|---|---|---|---|---|---|---|---|
 | GKP | 1111 | 1.787 | 2.462 | -0.003 | 0.430 | 0.537 | 2.170 | 2.173 |
-| DEF | 6013 | 1.843 | 2.714 | -0.130 | 0.376 | 0.443 | 1.795 | 1.925 |
-| MID | 8023 | 1.561 | 2.480 | -0.179 | 0.415 | 0.507 | 1.690 | 1.869 |
-| FWD | 2017 | 1.657 | 2.737 | -0.351 | 0.413 | 0.543 | 1.665 | 2.016 |
+| DEF | 6013 | 1.887 | 2.709 | 0.019 | 0.375 | 0.443 | 1.944 | 1.925 |
+| MID | 8023 | 1.572 | 2.476 | -0.138 | 0.415 | 0.508 | 1.731 | 1.869 |
+| FWD | 2017 | 1.656 | 2.737 | -0.352 | 0.413 | 0.543 | 1.663 | 2.016 |
 
 
 ## 3. Cold start vs steady state
@@ -144,10 +144,10 @@ than the headline number.
 
 | slice | n | mae | rmse | bias | pearson | spearman | mean_pred | mean_actual |
 |---|---|---|---|---|---|---|---|---|
-| cold start (GW1-5) | 3588 | 2.054 | 2.532 | 0.904 | 0.248 | 0.241 | 2.188 | 1.284 |
-| steady state (GW6+) | 25750 | 1.877 | 2.451 | 0.756 | 0.240 | 0.168 | 1.913 | 1.157 |
-| cold start, credible pool | 1420 | 1.925 | 2.800 | -0.238 | 0.322 | 0.391 | 2.180 | 2.418 |
-| steady state, credible pool | 15744 | 1.664 | 2.574 | -0.165 | 0.405 | 0.488 | 1.717 | 1.881 |
+| cold start (GW1-5) | 3588 | 1.769 | 2.381 | 0.635 | 0.347 | 0.411 | 1.919 | 1.284 |
+| steady state (GW6+) | 25750 | 1.210 | 2.035 | 0.112 | 0.527 | 0.648 | 1.269 | 1.157 |
+| cold start, credible pool | 1420 | 1.949 | 2.795 | -0.142 | 0.323 | 0.393 | 2.275 | 2.418 |
+| steady state, credible pool | 15744 | 1.684 | 2.571 | -0.096 | 0.404 | 0.484 | 1.785 | 1.881 |
 
 
 Read the credible-pool rows, not the whole-pool rows, to judge whether the
@@ -157,18 +157,18 @@ grows as clubs register more fringe players, so the bug in section 1b
 does progressively more damage. On the credible pool the model behaves as
 it should — it gets better as evidence accumulates.
 
-Cold-start MAE is 0.178 pts worse than steady state; rank
-correlation is 0.073 higher.
+Cold-start MAE is 0.559 pts worse than steady state; rank
+correlation is 0.238 lower.
 
 Per-gameweek cold-start detail:
 
 | gameweek | n | mae | rmse | bias | pearson | spearman | mean_pred | mean_actual |
 |---|---|---|---|---|---|---|---|---|
-| 1.000 | 690.000 | 2.129 | 2.625 | 0.798 | 0.197 | 0.092 | 2.194 | 1.396 |
-| 2.000 | 705.000 | 2.159 | 2.686 | 1.068 | 0.307 | 0.413 | 2.353 | 1.285 |
-| 3.000 | 712.000 | 2.064 | 2.500 | 0.891 | 0.253 | 0.269 | 2.200 | 1.309 |
-| 4.000 | 740.000 | 2.035 | 2.494 | 0.836 | 0.274 | 0.236 | 2.151 | 1.315 |
-| 5.000 | 741.000 | 1.896 | 2.354 | 0.927 | 0.232 | 0.204 | 2.051 | 1.124 |
+| 1.000 | 690.000 | 2.181 | 2.651 | 0.886 | 0.204 | 0.090 | 2.282 | 1.396 |
+| 2.000 | 705.000 | 2.224 | 2.724 | 1.166 | 0.310 | 0.420 | 2.451 | 1.285 |
+| 3.000 | 712.000 | 2.116 | 2.530 | 0.982 | 0.260 | 0.277 | 2.291 | 1.309 |
+| 4.000 | 740.000 | 1.248 | 2.041 | 0.015 | 0.554 | 0.629 | 1.330 | 1.315 |
+| 5.000 | 741.000 | 1.142 | 1.880 | 0.180 | 0.533 | 0.680 | 1.304 | 1.124 |
 
 
 ## 4. Calibration
@@ -182,11 +182,11 @@ with a negative one in the bottom means the model's spread is too wide.
 
 | bin | n | pred_range | mean_pred | mean_actual | bias |
 |---|---|---|---|---|---|
-| 1 | 5868 | 0.37-1.10 | 0.669 | 0.764 | -0.095 |
-| 2 | 5874 | 1.10-1.96 | 1.587 | 1.258 | 0.330 |
-| 3 | 5865 | 1.96-2.19 | 2.088 | 0.447 | 1.641 |
-| 4 | 5886 | 2.19-2.50 | 2.309 | 0.647 | 1.662 |
-| 5 | 5845 | 2.50-10.49 | 3.083 | 2.755 | 0.328 |
+| 1 | 5869 | 0.36-0.44 | 0.416 | 0.040 | 0.376 |
+| 2 | 5866 | 0.44-0.51 | 0.472 | 0.096 | 0.376 |
+| 3 | 5868 | 0.51-1.33 | 0.844 | 0.921 | -0.077 |
+| 4 | 5868 | 1.33-2.39 | 1.901 | 1.649 | 0.251 |
+| 5 | 5867 | 2.39-10.48 | 3.111 | 3.158 | -0.047 |
 
 
 **Credible pool (1+ prior appearance)** — this is the table to read for
@@ -194,33 +194,33 @@ calibration of the scoring model itself:
 
 | bin | n | pred_range | mean_pred | mean_actual | bias |
 |---|---|---|---|---|---|
-| 1 | 3433 | 0.37-0.69 | 0.508 | 0.488 | 0.020 |
-| 2 | 3433 | 0.69-1.28 | 0.981 | 1.212 | -0.231 |
-| 3 | 3432 | 1.28-1.98 | 1.607 | 1.769 | -0.162 |
-| 4 | 3433 | 1.98-2.75 | 2.364 | 2.499 | -0.135 |
-| 5 | 3433 | 2.75-10.49 | 3.314 | 3.659 | -0.345 |
+| 1 | 3433 | 0.38-0.70 | 0.514 | 0.491 | 0.023 |
+| 2 | 3433 | 0.70-1.33 | 1.013 | 1.224 | -0.211 |
+| 3 | 3432 | 1.33-2.07 | 1.678 | 1.759 | -0.081 |
+| 4 | 3433 | 2.07-2.88 | 2.477 | 2.511 | -0.034 |
+| 5 | 3433 | 2.88-10.48 | 3.448 | 3.643 | -0.195 |
 
 
 **Cold start:**
 
 | bin | n | pred_range | mean_pred | mean_actual | bias |
 |---|---|---|---|---|---|
-| 1 | 720 | 0.39-1.88 | 1.177 | 1.240 | -0.063 |
-| 2 | 722 | 1.88-2.12 | 2.031 | 0.593 | 1.438 |
-| 3 | 712 | 2.12-2.25 | 2.185 | 0.555 | 1.630 |
-| 4 | 716 | 2.25-2.68 | 2.413 | 0.913 | 1.500 |
-| 5 | 718 | 2.68-5.17 | 3.138 | 3.116 | 0.022 |
+| 1 | 720 | 0.39-0.52 | 0.444 | 0.150 | 0.294 |
+| 2 | 715 | 0.52-2.02 | 1.261 | 1.196 | 0.065 |
+| 3 | 722 | 2.02-2.28 | 2.168 | 0.830 | 1.338 |
+| 4 | 713 | 2.29-2.77 | 2.451 | 1.021 | 1.430 |
+| 5 | 718 | 2.77-5.17 | 3.273 | 3.227 | 0.046 |
 
 
 **Steady state:**
 
 | bin | n | pred_range | mean_pred | mean_actual | bias |
 |---|---|---|---|---|---|
-| 1 | 5150 | 0.37-1.03 | 0.636 | 0.698 | -0.062 |
-| 2 | 5155 | 1.03-1.92 | 1.501 | 1.357 | 0.145 |
-| 3 | 5145 | 1.92-2.18 | 2.064 | 0.455 | 1.609 |
-| 4 | 5150 | 2.18-2.48 | 2.295 | 0.583 | 1.712 |
-| 5 | 5150 | 2.48-10.49 | 3.069 | 2.693 | 0.376 |
+| 1 | 5153 | 0.36-0.44 | 0.414 | 0.035 | 0.379 |
+| 2 | 5149 | 0.44-0.50 | 0.465 | 0.082 | 0.383 |
+| 3 | 5148 | 0.50-1.13 | 0.719 | 0.692 | 0.027 |
+| 4 | 5150 | 1.13-2.29 | 1.676 | 1.752 | -0.077 |
+| 5 | 5150 | 2.30-10.48 | 3.072 | 3.226 | -0.154 |
 
 
 ## 5. Top-20 precision (the metric that actually matters)
@@ -232,9 +232,9 @@ comfortably above it, the shortlist is adding nothing.
 
 | predictor | precision | mean_actual_points | pool_hit_rate | gameweeks | picks |
 |---|---|---|---|---|---|
-| xP model | 0.349 | 4.326 | 0.071 | 38 | 760 |
-| baseline: season PPG | 0.304 | 4.164 | 0.071 | 38 | 760 |
-| baseline: position mean | 0.258 | 3.139 | 0.071 | 38 | 760 |
+| xP model | 0.359 | 4.393 | 0.071 | 38 | 760 |
+| baseline: season PPG | 0.304 | 4.157 | 0.071 | 38 | 760 |
+| baseline: position mean | 0.286 | 3.576 | 0.071 | 38 | 760 |
 
 
 ## 6. Comparison against baselines
@@ -258,7 +258,7 @@ FPL's own published expected-points number.
 
 | predictor | n | mae | rmse | bias | pearson | spearman | mean_pred | mean_actual |
 |---|---|---|---|---|---|---|---|---|
-| xP model | 29338 | 1.898 | 2.461 | 0.774 | 0.240 | 0.176 | 1.947 | 1.173 |
+| xP model | 29338 | 1.279 | 2.080 | 0.176 | 0.499 | 0.613 | 1.349 | 1.173 |
 | baseline: zero | 29338 | 1.181 | 2.661 | -1.173 | n/a | n/a | 0.000 | 1.173 |
 | baseline: season PPG | 29338 | 1.073 | 2.114 | -0.036 | 0.489 | 0.663 | 1.137 | 1.173 |
 | baseline: position mean | 29338 | 1.556 | 2.394 | 0.023 | 0.032 | 0.069 | 1.196 | 1.173 |
@@ -273,7 +273,7 @@ same signal the model is throwing away in recommendation 1.
 
 | predictor | n | mae | rmse | bias | pearson | spearman | mean_pred | mean_actual |
 |---|---|---|---|---|---|---|---|---|
-| xP model | 17164 | 1.686 | 2.594 | -0.171 | 0.401 | 0.485 | 1.755 | 1.926 |
+| xP model | 17164 | 1.706 | 2.590 | -0.100 | 0.400 | 0.482 | 1.826 | 1.926 |
 | baseline: zero | 17164 | 1.939 | 3.418 | -1.926 | n/a | n/a | 0.000 | 1.926 |
 | baseline: season PPG | 17164 | 1.755 | 2.686 | 0.017 | 0.362 | 0.482 | 1.943 | 1.926 |
 | baseline: position mean | 17164 | 1.810 | 2.907 | -0.680 | 0.005 | 0.046 | 1.246 | 1.926 |
@@ -285,7 +285,7 @@ earn its keep):
 
 | predictor | n | mae | rmse | bias | pearson | spearman | mean_pred | mean_actual |
 |---|---|---|---|---|---|---|---|---|
-| xP model | 3588 | 2.054 | 2.532 | 0.904 | 0.248 | 0.241 | 2.188 | 1.284 |
+| xP model | 3588 | 1.769 | 2.381 | 0.635 | 0.347 | 0.411 | 1.919 | 1.284 |
 | baseline: zero | 3588 | 1.293 | 2.757 | -1.284 | n/a | n/a | 0.000 | 1.284 |
 | baseline: season PPG | 3588 | 1.204 | 2.470 | -0.232 | 0.390 | 0.577 | 1.052 | 1.284 |
 | baseline: position mean | 3588 | 1.590 | 2.512 | -0.198 | -0.008 | 0.024 | 1.086 | 1.284 |
@@ -305,7 +305,7 @@ therefore compared on the identical surviving subset
 
 | predictor | n | mae | rmse | bias | pearson | spearman | mean_pred | mean_actual |
 |---|---|---|---|---|---|---|---|---|
-| xP model | 8293 | 1.948 | 2.488 | 0.828 | 0.227 | 0.185 | 2.031 | 1.203 |
+| xP model | 8293 | 1.443 | 2.198 | 0.341 | 0.425 | 0.526 | 1.543 | 1.203 |
 | baseline: zero | 8293 | 1.213 | 2.682 | -1.203 | n/a | n/a | 0.000 | 1.203 |
 | baseline: season PPG | 8293 | 1.116 | 2.250 | -0.088 | 0.442 | 0.623 | 1.114 | 1.203 |
 | baseline: position mean | 8293 | 1.551 | 2.426 | -0.041 | 0.006 | 0.053 | 1.162 | 1.203 |
@@ -316,7 +316,7 @@ therefore compared on the identical surviving subset
 
 | predictor | n | mae | rmse | bias | pearson | spearman | mean_pred | mean_actual |
 |---|---|---|---|---|---|---|---|---|
-| xP model | 4245 | 1.747 | 2.674 | -0.186 | 0.362 | 0.450 | 1.876 | 2.062 |
+| xP model | 4245 | 1.771 | 2.672 | -0.108 | 0.361 | 0.447 | 1.955 | 2.062 |
 | baseline: zero | 4245 | 2.082 | 3.528 | -2.062 | n/a | n/a | 0.000 | 2.062 |
 | baseline: season PPG | 4245 | 1.891 | 2.878 | 0.115 | 0.318 | 0.444 | 2.177 | 2.062 |
 | baseline: position mean | 4245 | 1.825 | 2.965 | -0.779 | 0.037 | 0.071 | 1.283 | 2.062 |
@@ -327,8 +327,8 @@ therefore compared on the identical surviving subset
 
 | predictor | precision | mean_actual_points | pool_hit_rate | gameweeks | picks |
 |---|---|---|---|---|---|
-| xP model | 0.345 | 4.277 | 0.073 | 11 | 220 |
-| FPL official xP | 0.627 | 7.082 | 0.073 | 11 | 220 |
+| xP model | 0.373 | 4.300 | 0.073 | 11 | 220 |
+| FPL official xP | 0.627 | 7.086 | 0.073 | 11 | 220 |
 
 
 **Verdict: FPL's own xP comfortably beats this model**, on every
@@ -360,16 +360,16 @@ above it are correspondingly unreliable.
 
 | component | mean_pred | mean_actual | bias | pct_of_pred |
 |---|---|---|---|---|
-| appearance | 1.050 | 1.066 | -0.016 | 59.820 |
-| goals | 0.249 | 0.274 | -0.025 | 14.214 |
-| assists | 0.112 | 0.159 | -0.047 | 6.403 |
-| clean_sheet | 0.257 | 0.278 | -0.021 | 14.658 |
-| goals_conceded | -0.072 | -0.097 | 0.024 | -4.115 |
-| saves | 0.019 | 0.025 | -0.006 | 1.069 |
-| defcon | 0.084 | 0.164 | -0.080 | 4.789 |
-| cards | -0.100 | -0.092 | -0.007 | -5.687 |
+| appearance | 1.050 | 1.066 | -0.016 | 57.492 |
+| goals | 0.249 | 0.274 | -0.025 | 13.661 |
+| assists | 0.112 | 0.159 | -0.047 | 6.153 |
+| clean_sheet | 0.257 | 0.278 | -0.021 | 14.087 |
+| goals_conceded | -0.072 | -0.097 | 0.024 | -3.955 |
+| saves | 0.019 | 0.025 | -0.006 | 1.027 |
+| defcon | 0.150 | 0.164 | -0.015 | 8.198 |
+| cards | -0.100 | -0.092 | -0.007 | -5.466 |
 | penalties | 0.000 | 0.001 | -0.001 | 0.000 |
-| bonus | 0.155 | 0.137 | 0.019 | 8.850 |
+| bonus | 0.161 | 0.137 | 0.024 | 8.802 |
 | unexplained_residual | n/a | 0.009 | n/a | n/a |
 
 
@@ -378,7 +378,7 @@ above it are correspondingly unreliable.
 `xp_model` cannot see the CBIT/CBIRT counting stats, because
 `fpl_client.load_players_df()` does not keep them. It therefore assumes
 every player at a position makes defensive actions at one identical rate,
-`DEFCON_PER90_PRIOR = {'GKP': 0.0, 'DEF': 6.5, 'MID': 8.5, 'FWD': 5.0}`. This archive *does* carry
+`DEFCON_PER90_PRIOR = {'GKP': 0.0, 'DEF': 8.6, 'MID': 9.3, 'FWD': 4.8}`. This archive *does* carry
 the real per-gameweek counts, so we can measure exactly what that
 assumption costs.
 
@@ -394,26 +394,26 @@ Population: outfield players with at least 180 prior minutes — **11,891 player
 
 | variant | n | mae | rmse | bias | spearman | mean_pred | mean_actual | top50_hit_rate |
 |---|---|---|---|---|---|---|---|---|
-| flat prior (live model today) | 11891 | 0.298 | 0.626 | -0.111 | 0.221 | 0.111 | 0.222 | 0.207 |
-| own rolling rate, shrunk | 11891 | 0.303 | 0.592 | -0.070 | 0.331 | 0.152 | 0.222 | 0.345 |
+| flat prior (live model today) | 11891 | 0.354 | 0.609 | -0.024 | 0.239 | 0.198 | 0.222 | 0.244 |
+| own rolling rate, shrunk | 11891 | 0.315 | 0.588 | -0.050 | 0.333 | 0.172 | 0.222 | 0.344 |
 | own rolling rate, raw | 11891 | 0.308 | 0.587 | -0.054 | 0.333 | 0.168 | 0.222 | 0.346 |
 
 
 **Finding — the gain is in ranking, not in average error.**
 
-- MAE barely moves (0.2982 → 0.3028, i.e. slightly *worse*). That is expected
+- MAE barely moves (0.3541 → 0.3147, i.e. slightly *worse*). That is expected
   and is not a strike against the idea: the target is 0 most of the
   time, so a predictor that stays near zero everywhere wins on MAE
   while being useless for picking anyone.
-- RMSE improves (0.6262 → 0.5916), because the rolling rate stops
+- RMSE improves (0.6089 → 0.5878), because the rolling rate stops
   being confidently wrong about the players who do hit the threshold.
-- **Rank correlation rises from 0.221 to 0.331** — a 50% improvement.
+- **Rank correlation rises from 0.239 to 0.333** — a 39% improvement.
 - **The decisive number: of the 50 players each gameweek most expected
-  to hit the DefCon threshold, the flat prior gets 20.7% right; the rolling rate gets 34.5%.** That is a 66% relative improvement in identifying DefCon returners.
+  to hit the DefCon threshold, the flat prior gets 24.4% right; the rolling rate gets 34.4%.** That is a 41% relative improvement in identifying DefCon returners.
 
 The mechanism is visible in the spread. The flat prior takes exactly
 3 distinct values across the whole league
-(one per position). The rolling rate ranges from 5.0 (10th pct) through 7.5 (median) to 10.2 (90th pct) CBIT/CBIRT per 90 —
+(one per position). The rolling rate ranges from 5.1 (10th pct) through 7.9 (median) to 10.4 (90th pct) CBIT/CBIRT per 90 —
 a genuine 2x spread between low- and high-volume defenders that the
 model currently cannot see at all.
 
@@ -448,43 +448,15 @@ diagnostic looks like.
 
 That `minutes <= 0` clause conflates two opposite situations: "it is GW1 and nobody has played yet" (no information) and "this player has logged zero minutes across every completed gameweek so far" (extremely strong information). The second group gets handed a 65% start probability.
 
-Measured over gameweeks 6-38: 9,906 player-gameweeks (38.6% of the pool) had zero prior appearances. The model gave them a mean p_start of 0.650 and predicted 2.22 xP each. They actually scored 0.015 points on average and featured at all in 1.1% of cases.
+Measured over gameweeks 6-38: 9,906 player-gameweeks (38.6% of the pool) had zero prior appearances. The model gave them a mean p_start of 0.020 and predicted 0.46 xP each. They actually scored 0.015 points on average and featured at all in 1.1% of cases.
 
-Those rows alone account for 21857 points of signed error against a whole-pool total of 19266 — i.e. 113% of all the model's over-prediction. Excluding them the model actually *under*-predicts slightly, and its rank correlation roughly triples.
+Those rows alone account for 4373 points of signed error against a whole-pool total of 2865 — i.e. 153% of all the model's over-prediction. Excluding them the model actually *under*-predicts slightly, and its rank correlation roughly triples.
 
 Suggested fix (for human review): make the fallback conditional on season progress rather than on minutes being zero — e.g. if `matches_played >= 3` and `minutes == 0`, the empirical start rate is ~1%, so return something near MIN_START_PROBABILITY (0.02) instead of DEFAULT_START_PROBABILITY. Reserve the flat prior for the genuine no-data case (`matches_played < 1`). Do NOT simply lower DEFAULT_START_PROBABILITY: that would wrongly punish real GW1 starters, who are the case it exists to serve.
 
-### 2. `DEFCON_PER90_PRIOR / DEFCON_OVERDISPERSION` — increase _(confidence: high)_
+### 2. `XG90_PRIOR['FWD'] / PRIOR_WEIGHT_90S` — increase _(confidence: medium)_
 
-DefCon: predicted 0.084 vs actual 0.164 points per player-gameweek — the model captures only 51% of the DefCon points actually awarded, making this the largest proportional component miss in the model.
-
-Priors are DEFCON_PER90_PRIOR = {'GKP': 0.0, 'DEF': 6.5, 'MID': 8.5, 'FWD': 5.0} with DEFCON_OVERDISPERSION = 1.6. Measured against this season, conditional on a player reaching 60 minutes:
-
-| pos | model P(threshold) | actual hit rate | per-90 that would match |
-|---|---|---|---|
-| DEF (10+ CBIT) | 0.116 | 0.270 | ~8.6 (currently 6.5) |
-| MID (12+ CBIRT) | 0.130 | 0.179 | ~9.3 (currently 8.5) |
-| FWD (12+ CBIRT) | 0.015 | 0.012 | ~4.8 (currently 5.0) |
-
-So DEF is the badly-wrong one: the prior implies defenders hit the threshold 12% of the time when they actually do so 27% of the time — under by more than half. MID is mildly low and FWD is already about right. Raising DEFCON_PER90_PRIOR['DEF'] toward 8.5 and ['MID'] toward 9.3 would align the means. Note the observed raw league rate for defenders is 7.69 CBIT/90; the model needs a slightly higher input than that because MEAN_MINUTES_IF_START (80.0) discounts the rate to an 80-minute match before applying the threshold.
-
-Separately — and more importantly — the DEFCON DATA-GAP EXPERIMENT (section 8) shows the problem is not only the level of the prior but the fact that it is *flat*. Replacing it with each player's own rolling CBIT/CBIRT rate lifts the DefCon top-50 hit rate from 20.7% to 34.5% and rank correlation from 0.221 to 0.331. Retuning the constant fixes the average; closing KNOWN DATA GAP #2 fixes the ranking, which is what squad selection actually consumes.
-
-### 3. `ATTACK_MULTIPLIER_BOUNDS / PRIOR_WEIGHT_90S / BONUS_POINTS_CAP` — widen the spread (increase the ceiling) _(confidence: medium)_
-
-Calibration is monotone but **compressed**: the bottom predicted bin is nearly unbiased (0.02) while the top bin under-predicts by 0.34 pts (predicted 3.31 vs actual 3.66). The model is not wrong about who the good players are — the ranking is fine — it is too timid about how good they are.
-
-Three constants pull the top end down, in decreasing order of likely impact:
-
-1. `PRIOR_WEIGHT_90S = 6.0` shrinks every player's xG/xA rate toward a league-average positional prior with the weight of 6 full matches. For an elite forward with a genuinely elite rate this is a permanent haircut that never fully washes out. Consider lowering it, or making it decay as the sample grows.
-2. `BONUS_POINTS_CAP = 1.8` hard-caps bonus, which binds exactly on the premium players in this bin.
-3. `ATTACK_MULTIPLIER_BOUNDS = (0.4, 2.2)` caps how favourable a fixture can be.
-
-This matters more than its size suggests: captaincy consumes only the very top of the ranking, so a systematic 0.34-point under-estimate of the best players is concentrated exactly where the decisions are.
-
-### 4. `XG90_PRIOR['FWD'] / PRIOR_WEIGHT_90S` — increase _(confidence: medium)_
-
-FWD is the worst-calibrated position on the credible pool: bias -0.351 pts per player-gameweek over 2,017 observations, against an all-position bias of -0.171. For FWD specifically, note that XG90_PRIOR['FWD'] = 0.3 is a league-average forward, but the forwards anyone actually owns are well above average — so the shrinkage in `shrunk_per90_rate()` drags exactly the players that matter toward a prior that does not describe them. Consider whether the prior should be conditioned on price or minutes rather than position alone.
+FWD is the worst-calibrated position on the credible pool: bias -0.352 pts per player-gameweek over 2,017 observations, against an all-position bias of -0.100. For FWD specifically, note that XG90_PRIOR['FWD'] = 0.3 is a league-average forward, but the forwards anyone actually owns are well above average — so the shrinkage in `shrunk_per90_rate()` drags exactly the players that matter toward a prior that does not describe them. Consider whether the prior should be conditioned on price or minutes rather than position alone.
 
 ## 10. Caveats and known limitations of this backtest
 

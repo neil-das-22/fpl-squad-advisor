@@ -49,9 +49,24 @@ KNOWN DATA GAPS (things data/fpl_client.py does not fetch yet)
      element-summary `history_past` endpoint, or vaastav's archive, to populate
      a `minutes_prev_season` column. Until then, the position/rotation agents
      are expected to supply `start_probability` overrides.
-  2. Defensive-contribution counting stats (CBIT / CBIRT). The FPL API exposes
-     these but `load_players_df()` does not keep them. Until it does, DefCon
-     uses positional priors -- pass `defcon_per90` to override.
+
+     Fixed 2025/26 backtest bug (see backtest/results_2025_26.md section 1b):
+     "zero minutes so far" and "no data yet" used to be handled identically,
+     so a confirmed non-player (academy/permanent backup) got the same 65%
+     start chance as an unobserved GW1 starter. Once
+     NEVER_APPEARED_MATCHES_THRESHOLD gameweeks have passed with zero
+     minutes, the model now treats that as real evidence instead. This was
+     the single largest source of error in the backtest (>100% of total
+     over-prediction) and is now fixed. It does NOT help at actual GW1,
+     where matches_played is still 0 for everyone -- that's still gap #1.
+  2. Defensive-contribution counting stats (CBIT / CBIRT). CLOSED: fpl_client
+     now keeps `clearances_blocks_interceptions`, `tackles`, `recoveries`, and
+     calculate_xp() shrinks each player's own season rate toward the
+     positional prior via `_defcon_count_for_position()` /
+     `shrunk_per90_rate()`, the same treatment as goals/assists. Backtested
+     gain: DefCon top-50 hit rate 20.7% -> 34.5% (see results section 8).
+     Falls back to the flat `DEFCON_PER90_PRIOR` if those columns are absent
+     (e.g. this player has 0 minutes so far, or an older data source).
   3. Cards / own goals. `yellow_cards`, `red_cards`, `own_goals` are not kept
      either, so card risk uses positional league-average rates.
   4. Penalty duty. Not in the schema at all. Penalty-save and penalty-miss
@@ -102,6 +117,19 @@ MEAN_MINUTES_IF_START = 80.0
 MEAN_MINUTES_IF_SUB = 18.0
 MIN_START_PROBABILITY = 0.02
 MAX_START_PROBABILITY = 0.98
+
+# A player with zero minutes after this many completed gameweeks is treated
+# as "known not to play" (squad filler / academy / nailed-on backup) rather
+# than "no information yet". Backtested against 2025/26: this population
+# (38.6% of the pool from GW6 on) was getting the flat DEFAULT_START_PROBABILITY
+# and accounted for MORE than 100% of the model's total over-prediction --
+# see backtest/results_2025_26.md section 1b/9.1. Below this threshold there
+# isn't enough season evidence to distinguish "won't play" from "hasn't
+# played yet", so the flat prior still applies.
+NEVER_APPEARED_MATCHES_THRESHOLD = 3
+# Empirical featuring rate for that population was ~1%, i.e. close to the
+# floor already used elsewhere for "essentially not going to play".
+NEVER_APPEARED_START_PROBABILITY = MIN_START_PROBABILITY
 
 # Availability multipliers applied to start probability when
 # `chance_of_playing_next_round` is null. Keyed on the FPL `status` code.
@@ -158,9 +186,15 @@ DEFAULT_TEAM_STRENGTH = 1150.0
 SAVES_PER_GOAL_CONCEDED = 2.10
 
 # --- Defensive contribution -----------------------------------------------
-# Per-90 CBIT (DEF) / CBIRT (MID, FWD) priors. Used until fpl_client fetches
-# the real counting stats -- see KNOWN DATA GAPS #2.
-DEFCON_PER90_PRIOR = {"GKP": 0.0, "DEF": 6.5, "MID": 8.5, "FWD": 5.0}
+# Per-90 CBIT (DEF) / CBIRT (MID, FWD) priors -- used as the fallback when a
+# player has no minutes history yet, and as the shrinkage target once he
+# does (see `_defcon_count_for_position` / `shrunk_per90_rate` in
+# calculate_xp). Retuned from the flat league-average guess to observed
+# 2025/26 hit rates, conditional on 60+ minutes (backtest/results_2025_26.md
+# section 9.2): DEF was under by more than half (model implied a 12% chance
+# of hitting the threshold, actual was 27%); MID was mildly low; FWD was
+# already about right.
+DEFCON_PER90_PRIOR = {"GKP": 0.0, "DEF": 8.6, "MID": 9.3, "FWD": 4.8}
 # Counting stats like tackles/recoveries are over-dispersed relative to Poisson
 # (role matters enormously: a ball-winning CDM vs an inverted full-back). We
 # model the count as negative-binomial with variance = mean * this factor, which
@@ -340,6 +374,13 @@ def estimate_start_probability(player_row: Any,
     explicitly, which is how the position research agents are meant to inject
     their judgement.
 
+    IMPORTANT: "zero minutes" is NOT always "no information". Once several
+    gameweeks have been played, a player still on zero minutes is strong
+    evidence he isn't going to feature -- see NEVER_APPEARED_MATCHES_THRESHOLD.
+    Conflating the two (treating a confirmed non-player the same as a
+    not-yet-observed GW1 starter) was the single largest source of error in
+    the 2025/26 backtest.
+
     Args:
         player_row: a row from load_players_df().
         matches_played: how many league matches the season is into. If None it
@@ -353,9 +394,22 @@ def estimate_start_probability(player_row: Any,
     minutes = _to_float(_get(player_row, "minutes", 0.0))
     starts = _to_float(_get(player_row, "starts", 0.0))
 
-    if matches_played is None or matches_played < 1 or minutes <= 0:
+    if matches_played is None or matches_played < 1:
+        # Genuine no-data case (preseason / new season) -- nobody has a
+        # track record yet, so fall back to the flat prior.
         base = default_start_probability
         flags.append("start_prob_default")
+    elif minutes <= 0:
+        if matches_played >= NEVER_APPEARED_MATCHES_THRESHOLD:
+            # Enough of the season has happened that a zero is a real signal,
+            # not a missing one: this player is not featuring.
+            base = NEVER_APPEARED_START_PROBABILITY
+            flags.append("start_prob_never_appeared")
+        else:
+            # Too early to tell zero-minutes-so-far apart from a rotation
+            # option who simply hasn't had his match yet.
+            base = default_start_probability
+            flags.append("start_prob_default")
     elif starts > 0:
         base = starts / matches_played
     else:
@@ -413,6 +467,23 @@ def shrunk_per90_rate(total: float, minutes: float, prior_rate: float,
         # Tiny samples: still blend, but the prior dominates by construction.
         total = max(0.0, total)
     return (total + prior_rate * prior_weight_90s) / (n90 + prior_weight_90s)
+
+
+def _defcon_count_for_position(player_row: Any, position: str) -> float:
+    """Season-cumulative defensive-contribution count, per the game's own
+    definition: CBIT (clearances+blocks+interceptions+tackles) for DEF,
+    CBIRT (+ recoveries) for MID/FWD. Returns 0.0 if the columns aren't
+    present (older data/fpl_client.py, or a source that doesn't carry them --
+    the caller falls back to the flat prior in that case, same as before).
+    """
+    cbi = _to_float(_get(player_row, "clearances_blocks_interceptions", 0.0))
+    tackles = _to_float(_get(player_row, "tackles", 0.0))
+    if position == "DEF":
+        return cbi + tackles
+    if position in ("MID", "FWD"):
+        recoveries = _to_float(_get(player_row, "recoveries", 0.0))
+        return cbi + tackles + recoveries
+    return 0.0
 
 
 # ---------------------------------------------------------------------------
@@ -666,12 +737,31 @@ def calculate_xp(player_row: Any,
 
     # DefCon: flat +2 at the threshold, so model P(threshold) * 2 and nothing
     # more -- exceeding the threshold is worth zero extra points.
+    #
+    # Rate comes from (in order of preference): an explicit override (research
+    # agent's own read on the player) > the player's own season CBIT/CBIRT
+    # count, shrunk toward the positional prior exactly like xG/xA above >
+    # the flat positional prior alone, if no counting-stat columns exist at
+    # all (older/partial data). Backtested: the shrunk-own-rate version lifts
+    # DefCon top-50 hit rate from 20.7% to 34.5% vs the flat prior alone --
+    # see backtest/results_2025_26.md section 8.
     threshold = DEFCON_THRESHOLD[position]
     defcon_per90 = overrides.get("defcon_per90")
     if defcon_per90 is None:
-        defcon_per90 = DEFCON_PER90_PRIOR[position]
-        if threshold is not None:
-            flags.append("defcon_prior")
+        defcon_count = _defcon_count_for_position(player_row, position)
+        has_defcon_data = (
+            _get(player_row, "clearances_blocks_interceptions", None) is not None
+            or _get(player_row, "tackles", None) is not None
+        )
+        if has_defcon_data and minutes_played > 0:
+            dc_prior_weight = PRIOR_WEIGHT_90S * (PROMOTED_PRIOR_WEIGHT_MULTIPLIER if is_promoted else 1.0)
+            defcon_per90 = shrunk_per90_rate(
+                defcon_count, minutes_played, DEFCON_PER90_PRIOR[position], dc_prior_weight)
+            flags.append("defcon_own_rate")
+        else:
+            defcon_per90 = DEFCON_PER90_PRIOR[position]
+            if threshold is not None:
+                flags.append("defcon_prior")
     defcon_per90 = _to_float(defcon_per90, 0.0)
 
     defcon_prob = 0.0

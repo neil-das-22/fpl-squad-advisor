@@ -78,6 +78,15 @@ AVOID_GW1 = [
     ("Pecsi", "Liverpool"), ("Penders", "Chelsea"),               # GK backups
     ("Chalobah", "Chelsea"), ("Amass", "Man Utd"), ("Ramsay", "Liverpool"),  # DEF exiting/bench
     ("N.Jackson", "Chelsea"), ("Obi", "Man Utd"),                 # FWD unlikely starters
+    # Welbeck was originally logged as a soft "downgrade" in the overrides
+    # CSV, but the FWD research agent's own language ("rotation/backup only
+    # ... expected to compete with Emegha for backup minutes, not a start")
+    # is really an avoid-level call. A flat -0.5 xP nudge isn't enough to
+    # keep a backup out once other picks shift the budget math -- this
+    # surfaced for real after the DefCon/start-probability fixes changed the
+    # squad enough to pull him in. Moving him here instead of relying on the
+    # soft adjustment.
+    ("Welbeck", "Chelsea"),
 ]
 
 
