@@ -21,6 +21,33 @@ rationale, source). The orchestrator consolidates all of it plus
 _Last tweaked by Neil -- shifted from a mostly news-driven agent to a
 mostly stats-driven one. Rationale below each change._
 
+**Update: GK and DEF now both look 4 gameweeks ahead, not just the next
+match.** `models/fixture_run.py` computes each team's expected clean-sheet
+run over a window (default GW1-4, configurable), combines it with each
+player's own defensive output (clean sheets for keepers, tackles +
+clearances/blocks/interceptions for defenders, from real 2025/26 data), and
+gates the whole thing on start probability -- a good fixture run behind a
+player who won't actually play is worthless, so anyone below a 40% start
+chance is dropped before ranking, not after. Every row also reports whether
+its start probability is backed by real data or just the flat 65% guess
+(`p_start_grounded`), so a shaky pick can't hide inside a good-looking
+score. Real run for GW1-4 right now: Liverpool, Chelsea, Man Utd, Arsenal,
+and Man City have the kindest defensive fixture runs; Fulham, Newcastle,
+Hull, and Ipswich have the toughest.
+
+**Update: the "first-choice via last season's starts" check is now built
+into the model itself**, not just the agent. `xp_model.py` pulls each
+player's real 2025/26 starts/minutes (from `data/raw/historical_2025_26/`,
+joined by FPL's stable player `code`) and uses that as the start-probability
+prior pre-season, instead of a flat 65% guess for everyone. 458 of 573
+players (80%) have real history to use this way; this is what correctly
+buries Meslier's start probability before any news search even runs. The
+agent's job narrows to what the season stat alone can't catch: summer
+transfers (a great last-season start rate at his old club doesn't mean
+he's first-choice at a new one), and the ~20% of players with no PL history
+at all (promoted teams, brand new arrivals), where research is still the
+only signal available.
+
 **What it's handed:** the model's top ~16 goalkeeper candidates by expected
 points.
 
@@ -78,6 +105,12 @@ can actually use them systematically instead of ad hoc per-run web search.
 ---
 
 ## 2. DEF agent
+
+**Update: same 4-gameweek fixture-run change as GK (see section 1)** --
+`models/fixture_run.py`'s `defensive_shortlist()` is the candidate-generation
+step feeding this agent now, not a single-gameweek xP sort. Combines each
+defender's team's GW1-4 clean-sheet run with his own tackle/clearance
+history, gated on a real start-probability check.
 
 **What it's handed:** top ~16 defender candidates by expected points.
 
