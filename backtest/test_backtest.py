@@ -587,12 +587,15 @@ def test_rolling_defcon_rate_hand_checked():
     # 21 actions in 180 minutes = 2 full 90s -> 10.5 per 90.
     assert _approx(float(out.loc[1, "defcon_per90_raw"]), 10.5)
 
-    # Shrunk: (21 + 6.5 * 3) / (2 + 3) = (21 + 19.5) / 5 = 8.1
+    # Shrunk toward DEFCON_PER90_PRIOR["DEF"]. Deliberately reads the live
+    # constant rather than a hardcoded number -- this used to hardcode 8.1,
+    # which silently assumed the pre-backtest prior of 6.5 and broke the
+    # moment that constant was retuned to 8.6. The constant is allowed to
+    # keep moving; the shrinkage *formula* is what this test guards.
     expected = (21.0 + m.DEFCON_PER90_PRIOR["DEF"]
                 * bt.DEFCON_ROLLING_PRIOR_WEIGHT_90S) / (2.0 + bt.DEFCON_ROLLING_PRIOR_WEIGHT_90S)
-    assert _approx(expected, 8.1)
-    assert _approx(float(out.loc[1, "defcon_per90_shrunk"]), 8.1)
-    print("  rolling DefCon rate: 21 actions / 180 mins -> 10.5 raw, 8.1 shrunk")
+    assert _approx(float(out.loc[1, "defcon_per90_shrunk"]), expected)
+    print(f"  rolling DefCon rate: 21 actions / 180 mins -> 10.5 raw, {expected:.2f} shrunk")
 
 
 def test_defcon_experiment_runs_and_is_self_consistent():

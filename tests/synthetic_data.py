@@ -161,6 +161,10 @@ def make_sample_players_df() -> pd.DataFrame:
 
         rows.append({
             "id": pid,
+            # FPL's stable cross-season identifier (see fpl_client.load_players_df).
+            # Deliberately NOT equal to `id`, because in the real payload they
+            # are unrelated and any code that conflates them is broken.
+            "code": 100000 + pid * 7,
             "full_name": f"{first} {last}",
             "web_name": web,
             "team_name": team,

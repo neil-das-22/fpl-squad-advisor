@@ -48,7 +48,7 @@ STATUS_MEANINGS = {
 
 EXPECTED_BOOTSTRAP_KEYS = {"elements", "teams", "element_types", "events"}
 EXPECTED_PLAYER_FIELDS = {
-    "id", "first_name", "second_name", "web_name", "team", "element_type",
+    "id", "code", "first_name", "second_name", "web_name", "team", "element_type",
     "now_cost", "total_points", "minutes", "goals_scored", "assists",
     "clean_sheets", "expected_goals", "expected_assists", "status",
     "chance_of_playing_next_round", "selected_by_percent", "form",
@@ -146,7 +146,14 @@ def load_players_df(bootstrap: dict) -> pd.DataFrame:
     df["full_name"] = df["first_name"] + " " + df["second_name"]
 
     keep_cols = [
-        "id", "full_name", "web_name", "team_name", "team_short", "is_promoted",
+        # `code` is FPL's STABLE player identifier: it is minted once per human
+        # being and never changes, so it survives season rollovers and summer
+        # transfers. `id` does NOT -- it is season/context-scoped and gets
+        # reissued, so joining historical data on `id` silently matches the
+        # wrong players (measured against the 2025/26 archive: 568 of 573
+        # current `id`s now belong to a different `code` than they did last
+        # season). Everything that joins across seasons must use `code`.
+        "id", "code", "full_name", "web_name", "team_name", "team_short", "is_promoted",
         "position", "price_m", "total_points", "points_per_game", "form",
         "selected_by_percent", "minutes", "starts", "goals_scored", "assists",
         "clean_sheets", "goals_conceded", "expected_goals", "expected_assists",
@@ -166,6 +173,175 @@ def load_players_df(bootstrap: dict) -> pd.DataFrame:
     return df[keep_cols]
 
 
+# ---------------------------------------------------------------------------
+# Prior-season reference data (closes xp_model KNOWN DATA GAP #1)
+# ---------------------------------------------------------------------------
+#
+# WHY THIS IS A SEPARATE, OPT-IN STEP
+# -----------------------------------
+# At GW1 of a new season a player's *current-season* minutes/starts carry no
+# information, so the xP model has nothing to base a start probability on and
+# falls back to a flat prior for everyone -- nailed-on starter and third-choice
+# backup alike. The fix is to feed it last season's minutes/starts explicitly.
+#
+# The obvious place to do that would be inside `load_players_df()`, but that
+# would give the live API call a hard dependency on a historical CSV existing
+# on disk, and `load_players_df()` has to keep working in environments where it
+# doesn't (CI, a fresh clone, someone else's machine). So this is deliberately
+# a separate function the caller opts into, and `attach_prior_season_stats()`
+# is a pure left-join that leaves NaN wherever there is no match.
+#
+# NaN IS THE POINT. A player with no row in the archive did not appear in the
+# Premier League last season at all (promoted clubs, arrivals from abroad).
+# That is "we have no information", which must keep routing him to the flat
+# prior / promoted-team fallback. It is emphatically NOT the same as a player
+# who WAS in the league and played zero minutes (Illan Meslier, 2025/26) --
+# that is strong evidence he won't start. Filling missing rows with zeros would
+# conflate the two and reintroduce almost exactly the bug fixed in
+# backtest/results_2025_26.md section 1b (see NEVER_APPEARED_MATCHES_THRESHOLD
+# in models/xp_model.py). Do not "helpfully" fillna(0) downstream.
+
+# Default source: the season-end 2025/26 player table bulk-downloaded from the
+# vaastav/Fantasy-Premier-League archive for backtesting. Same underlying
+# numbers as the per-player `history_past` array on the live
+# /api/element-summary/{id}/ endpoint, but all ~700 players in one file and no
+# network round-trip per player.
+PRIOR_SEASON_CSV_DEFAULT = os.path.join(RAW_DIR, "historical_2025_26", "players_raw.csv")
+
+# source column -> renamed column. The `_prev_season` suffix is not decoration:
+# these frames get merged alongside identically-named current-season columns
+# and then round-tripped through CSV, and an ambiguous `minutes` would be a
+# silent-corruption bug waiting to happen.
+PRIOR_SEASON_COLUMN_MAP = {
+    "minutes": "minutes_prev_season",
+    "starts": "starts_prev_season",
+    "total_points": "total_points_prev_season",
+    "clean_sheets": "clean_sheets_prev_season",
+    "clearances_blocks_interceptions": "clearances_blocks_interceptions_prev_season",
+    "tackles": "tackles_prev_season",
+    "recoveries": "recoveries_prev_season",
+    # Not in the original spec for this function, added deliberately: pre-season
+    # the live bootstrap-static `expected_goals`/`expected_assists` are still
+    # last season's carryover numbers, and the moment FPL rolls the season over
+    # they reset to 0. Without these two columns every player's xG/xA per 90
+    # would collapse to the flat positional prior at exactly the gameweek this
+    # model exists to predict. See xp_model.calculate_xp().
+    "expected_goals": "expected_goals_prev_season",
+    "expected_assists": "expected_assists_prev_season",
+}
+
+PRIOR_SEASON_COLUMNS = [
+    "code",
+    "minutes_prev_season",
+    "starts_prev_season",
+    "total_points_prev_season",
+    "price_prev_season_m",
+    "points_per_million_prev_season",
+    "clean_sheets_prev_season",
+    "clearances_blocks_interceptions_prev_season",
+    "tackles_prev_season",
+    "recoveries_prev_season",
+    "expected_goals_prev_season",
+    "expected_assists_prev_season",
+]
+
+
+def load_prior_season_reference(csv_path: str = PRIOR_SEASON_CSV_DEFAULT) -> pd.DataFrame:
+    """Slim, unambiguously-named prior-season player table keyed on `code`.
+
+    Args:
+        csv_path: a season-end player table shaped like the vaastav archive's
+            `players_raw.csv` (or the equivalent assembled from the live API's
+            `history_past` arrays). Must contain a `code` column.
+
+    Returns:
+        One row per player `code`, columns per PRIOR_SEASON_COLUMNS. Every
+        stat column is numeric; unparseable values become NaN rather than 0.
+
+    Notes:
+        * `now_cost` in a season-end archive is the player's END-of-season
+          price, so it is exposed as `price_prev_season_m` (= now_cost / 10) --
+          not to be confused with the live `price_m`.
+        * `points_per_million_prev_season` is NaN, not inf, when the price is
+          zero or missing.
+    """
+    if not os.path.exists(csv_path):
+        raise FileNotFoundError(f"prior-season reference CSV not found: {csv_path}")
+
+    raw = pd.read_csv(csv_path)
+    if "code" not in raw.columns:
+        raise ValueError(
+            f"{csv_path} has no `code` column. Joining prior-season data on `id` "
+            "is not an acceptable substitute -- ids are reissued between seasons."
+        )
+
+    out = pd.DataFrame()
+    out["code"] = pd.to_numeric(raw["code"], errors="coerce").astype("Int64")
+
+    for src, dest in PRIOR_SEASON_COLUMN_MAP.items():
+        out[dest] = (pd.to_numeric(raw[src], errors="coerce")
+                     if src in raw.columns else pd.NA)
+
+    # Season-end price. `now_cost` is what this archive calls it; `end_cost` is
+    # what the live element-summary `history_past` calls the same number.
+    cost_col = next((c for c in ("now_cost", "end_cost") if c in raw.columns), None)
+    out["price_prev_season_m"] = (
+        pd.to_numeric(raw[cost_col], errors="coerce") / 10.0 if cost_col else pd.NA
+    )
+
+    price = pd.to_numeric(out["price_prev_season_m"], errors="coerce")
+    points = pd.to_numeric(out["total_points_prev_season"], errors="coerce")
+    # Divide-by-zero guard: a 0.0m price is meaningless, so value is unknown
+    # (NaN), not infinite.
+    out["points_per_million_prev_season"] = points.divide(price.where(price > 0))
+
+    out = out.dropna(subset=["code"])
+    if out["code"].duplicated().any():
+        # Shouldn't happen in a clean season-end export, but if a code appears
+        # twice keep the row with the most minutes rather than an arbitrary one.
+        out = (out.sort_values("minutes_prev_season", ascending=False)
+                  .drop_duplicates(subset=["code"], keep="first"))
+
+    return out[PRIOR_SEASON_COLUMNS].reset_index(drop=True)
+
+
+def attach_prior_season_stats(players_df: pd.DataFrame,
+                              prior_df: pd.DataFrame | None) -> pd.DataFrame:
+    """Left-join prior-season stats onto a `load_players_df()` result by `code`.
+
+    Unmatched players (no Premier League appearance last season) get NaN in
+    every `*_prev_season` column. That is the correct signal and downstream code
+    depends on it -- see the module comment above.
+
+    Passing `prior_df=None` still returns the full column set, all-NaN, so the
+    schema does not change depending on whether the archive happened to be on
+    disk.
+    """
+    if "code" not in players_df.columns:
+        raise ValueError(
+            "players_df has no `code` column -- rebuild it with load_players_df(). "
+            "Do not fall back to joining on `id`; ids are reissued across seasons."
+        )
+
+    out = players_df.copy()
+    added = [c for c in PRIOR_SEASON_COLUMNS if c != "code"]
+
+    if prior_df is None or len(prior_df) == 0:
+        for col in added:
+            out[col] = pd.NA
+        return out
+
+    # Join on a temporary normalised key so the caller's own `code` dtype is
+    # preserved exactly as load_players_df() produced it.
+    left = out.assign(_code_key=pd.to_numeric(out["code"], errors="coerce").astype("Int64"))
+    right = prior_df.copy()
+    right["_code_key"] = pd.to_numeric(right["code"], errors="coerce").astype("Int64")
+    right = right.drop(columns=["code"])
+
+    merged = left.merge(right, on="_code_key", how="left").drop(columns=["_code_key"])
+    return merged
+
+
 def load_fixtures_df(fixtures: list, bootstrap: dict) -> pd.DataFrame:
     df = pd.DataFrame(fixtures)
     teams = load_teams_df(bootstrap)[["id", "name", "short_name"]]
@@ -182,6 +358,34 @@ def load_fixtures_df(fixtures: list, bootstrap: dict) -> pd.DataFrame:
     return df[keep_cols].rename(columns={"event": "gameweek"})
 
 
+def load_players_with_prior_season(bootstrap: dict,
+                                   csv_path: str = PRIOR_SEASON_CSV_DEFAULT,
+                                   verbose: bool = True) -> pd.DataFrame:
+    """`load_players_df()` + prior-season columns, degrading gracefully.
+
+    This is the convenience wrapper the live pipeline uses. If the archive CSV
+    isn't on disk (different machine, fresh clone, CI) it prints a note and
+    returns the frame with all-NaN prior-season columns rather than crashing --
+    the model treats that exactly like "player has no PL history", i.e. flat
+    prior, which is the pre-fix behaviour and is safe.
+    """
+    players_df = load_players_df(bootstrap)
+    try:
+        prior_df = load_prior_season_reference(csv_path)
+    except (FileNotFoundError, ValueError) as exc:
+        if verbose:
+            print(f"[PRIOR SEASON] unavailable ({exc}); falling back to flat "
+                  f"start-probability priors for all players.")
+        return attach_prior_season_stats(players_df, None)
+
+    out = attach_prior_season_stats(players_df, prior_df)
+    if verbose:
+        matched = int(out["minutes_prev_season"].notna().sum())
+        print(f"[PRIOR SEASON] matched {matched}/{len(out)} players on `code` "
+              f"({len(out) - matched} with no 2025/26 PL history -> NaN, flat prior)")
+    return out
+
+
 def run_pipeline() -> dict:
     """Fetch, validate, save raw + processed data. Returns dict of DataFrames."""
     bootstrap = fetch_bootstrap_static()
@@ -194,7 +398,7 @@ def run_pipeline() -> dict:
     save_raw(bootstrap, "bootstrap_static.json")
     save_raw(fixtures, "fixtures.json")
 
-    players_df = load_players_df(bootstrap)
+    players_df = load_players_with_prior_season(bootstrap)
     teams_df = load_teams_df(bootstrap)
     fixtures_df = load_fixtures_df(fixtures, bootstrap)
 

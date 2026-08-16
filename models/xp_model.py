@@ -42,13 +42,34 @@ touching the logic.
 
 KNOWN DATA GAPS (things data/fpl_client.py does not fetch yet)
 --------------------------------------------------------------
-  1. `minutes_prev_season` / prior-season starts. At GW1 of a new season every
-     player's `minutes` is 0, so start probability has nothing to stand on.
-     `estimate_start_probability()` therefore falls back to a flat prior and
-     raises the flag "start_prob_default". FIX: extend fpl_client with the
-     element-summary `history_past` endpoint, or vaastav's archive, to populate
-     a `minutes_prev_season` column. Until then, the position/rotation agents
-     are expected to supply `start_probability` overrides.
+  1. `minutes_prev_season` / prior-season starts. CLOSED: fpl_client now has
+     `load_prior_season_reference()` / `attach_prior_season_stats()`, which
+     join last season's minutes, starts, CBIT/tackles/recoveries and xG/xA onto
+     the player frame on `code` (FPL's stable cross-season identifier -- NOT
+     `id`, which is reissued). Three places consume it, and all three only fire
+     when there is no current-season evidence to prefer:
+       * `estimate_start_probability()` -- prior-season starts / 38 instead of
+         the flat prior, flagged "start_prob_from_prior_season".
+       * the DefCon block of `calculate_xp()` -- prior-season CBIT/CBIRT per 90
+         shrunk toward the positional prior, flagged "defcon_prior_season_rate".
+       * the xG/xA block of `calculate_xp()` -- ditto, flagged
+         "xg_xa_from_prior_season".
+     A player with NO prior-season row (promoted club, arrival from abroad) has
+     NaN there, not 0, and keeps the old flat-prior behaviour. "No PL history"
+     and "played in the PL and recorded zero" are different signals and are
+     kept apart deliberately -- conflating them is the same class of bug as 1b
+     below.
+
+     KNOWN LIMITATION of the 38-game denominator: a player who was only in the
+     league for part of last season is understated. A January signing who
+     started 15 of the final 19 games shows starts_prev_season = 15, which the
+     model reads as 15/38 = a rotation option rather than the ~80% starter he
+     actually is. Accepted simplification for v1: fixing it needs per-gameweek
+     history (element-summary `history`, or merged_gw.csv) to work out how many
+     matches he was actually available for, which is a bigger job than this.
+     Mitigations already in place: the shrinkage below never lets the estimate
+     collapse to 0, and the research agents' `start_probability` override is
+     the intended escape hatch for exactly this case.
 
      Fixed 2025/26 backtest bug (see backtest/results_2025_26.md section 1b):
      "zero minutes so far" and "no data yet" used to be handled identically,
@@ -72,6 +93,27 @@ KNOWN DATA GAPS (things data/fpl_client.py does not fetch yet)
   4. Penalty duty. Not in the schema at all. Penalty-save and penalty-miss
      terms default to 0 and only activate if `penalty_share` /
      `penalty_save_share` are passed in (the FWD/MID research agents' job).
+
+PRE-SEASON CARRYOVER (verified against the live payload, 2026/27 pre-GW1)
+------------------------------------------------------------------------
+Between the end of one season and the start of the next, bootstrap-static does
+NOT zero a player's stats -- `minutes`, `starts`, `expected_goals`,
+`expected_assists`, `total_points` and the CBIT/CBIRT counts all still hold
+LAST season's totals. Checked player by player against the 2025/26 archive:
+they are identical (Raya 3330 minutes / 37 starts in both).
+
+That matters for two reasons:
+  * `infer_matches_played()` reads max(minutes)/90 and concludes the season is
+    37 matches old when zero matches have actually been played, which routes
+    every player through the in-season branches. Callers that KNOW the season
+    hasn't started (e.g. count the `finished` flags in bootstrap `events`)
+    should pass `matches_played=0` explicitly -- see agents/orchestrator.py
+    `build_xp_table()`. Without that, a genuinely new arrival with 0 carryover
+    minutes gets classified as a confirmed non-player.
+  * The carryover disappears the moment FPL rolls the season over, at which
+    point the prior-season columns above become the ONLY source of a per-90
+    rate. Both paths are implemented, so the model behaves sanely either side
+    of the rollover.
 """
 
 from __future__ import annotations
@@ -130,6 +172,23 @@ NEVER_APPEARED_MATCHES_THRESHOLD = 3
 # Empirical featuring rate for that population was ~1%, i.e. close to the
 # floor already used elsewhere for "essentially not going to play".
 NEVER_APPEARED_START_PROBABILITY = MIN_START_PROBABILITY
+
+# --- Prior-season fallback (GW1, no current-season data) -------------------
+# Denominator for turning last season's `starts` into a start RATE. A full
+# Premier League season is 38 matches. See the KNOWN LIMITATION note in the
+# module docstring: this understates anyone who was only in the league for part
+# of the season (a January arrival), which is an accepted v1 simplification.
+PREV_SEASON_MATCHES = 38.0
+# Prior-season starts are shrunk toward the flat DEFAULT_START_PROBABILITY with
+# the weight of this many "fake" matches, in the same empirical-Bayes style as
+# `shrunk_per90_rate()`. Two reasons not to use the raw ratio:
+#   * it stops 0 starts collapsing to a literal 0.0 start probability -- a
+#     player who didn't feature last season is unlikely, not impossible, to
+#     start (Meslier: (0 + 0.65*6)/(38+6) = 0.089, not 0.0);
+#   * it takes the edge off the part-season problem above, and off squad
+#     churn generally -- last season's role is evidence about this season, not
+#     a measurement of it.
+PREV_SEASON_START_PRIOR_WEIGHT = 6.0
 
 # Availability multipliers applied to start probability when
 # `chance_of_playing_next_round` is null. Keyed on the FPL `status` code.
@@ -281,6 +340,35 @@ def _get(row: Any, key: str, default: Any = None) -> Any:
     return value
 
 
+def _optional_float(row: Any, key: str) -> float | None:
+    """Read a numeric field, returning None (not 0.0) when it is absent.
+
+    This is the primitive that keeps "no data" and "a real measured zero"
+    apart, which the whole prior-season feature depends on: a player with no
+    row in the archive has NaN prior-season minutes and must fall back to the
+    flat prior, while a player who was in the league and recorded zero minutes
+    has a real 0.0 and must be pushed toward "won't start".
+
+    `_to_float()` cannot do this job -- it collapses missing to a default by
+    design -- and `_get()` alone doesn't handle NaN inside plain dicts or the
+    empty strings a CSV round-trip produces.
+    """
+    value = _get(row, key, None)
+    if value is None:
+        return None
+    if isinstance(value, str):
+        value = value.strip()
+        if value == "" or value.lower() in ("nan", "none", "na", "<na>"):
+            return None
+    try:
+        out = float(value)
+    except (TypeError, ValueError):
+        return None
+    if math.isnan(out) or math.isinf(out):
+        return None
+    return out
+
+
 def _clip(x: float, lo: float, hi: float) -> float:
     return max(lo, min(hi, x))
 
@@ -360,19 +448,56 @@ def availability_multiplier(player_row: Any) -> tuple[float, list[str]]:
     return mult, flags
 
 
+def prior_season_start_rate(player_row: Any,
+                            default_start_probability: float = DEFAULT_START_PROBABILITY,
+                            ) -> float | None:
+    """Start probability implied by LAST season, or None if we have none.
+
+    Requires `starts_prev_season` (preferred) or `minutes_prev_season` on the
+    row -- i.e. the columns `fpl_client.attach_prior_season_stats()` adds.
+    Returns None when both are missing/NaN, which is the "this player has no
+    Premier League history" case and must fall through to the flat prior.
+
+    A measured zero is NOT missing: Meslier's real 2025/26 line (0 starts, 0
+    minutes) returns ~0.09, correctly marking him as a non-starter before a
+    single 2026/27 minute has been played.
+    """
+    starts_prev = _optional_float(player_row, "starts_prev_season")
+    minutes_prev = _optional_float(player_row, "minutes_prev_season")
+    if starts_prev is None and minutes_prev is None:
+        return None
+
+    if starts_prev is None:
+        # Older/partial sources carry minutes but not starts -- back out an
+        # implied start count, same trick as the in-season branch below.
+        starts_prev = minutes_prev / MEAN_MINUTES_IF_START
+
+    observed = _clip(starts_prev, 0.0, PREV_SEASON_MATCHES)
+    w = PREV_SEASON_START_PRIOR_WEIGHT
+    return ((observed + default_start_probability * w)
+            / (PREV_SEASON_MATCHES + w))
+
+
 def estimate_start_probability(player_row: Any,
                                matches_played: float | None = None,
                                default_start_probability: float = DEFAULT_START_PROBABILITY,
                                ) -> tuple[float, list[str]]:
     """Estimate P(player starts this match).
 
-    PLACEHOLDER WARNING (KNOWN DATA GAP #1): the only minutes signal available
-    from `load_players_df()` is *current-season* `minutes`/`starts`. In GW1 of a
-    new season both are 0 for everyone, so this returns a flat prior and flags
-    "start_prob_default". Once fpl_client exposes prior-season minutes
-    (`minutes_prev_season`), feed it in here -- or pass `start_probability`
-    explicitly, which is how the position research agents are meant to inject
-    their judgement.
+    Signal preference, strongest first:
+      1. current-season `starts` / matches_played, once the season is underway;
+      2. current-season zero minutes over enough gameweeks -- a real "he isn't
+         playing" signal, see NEVER_APPEARED_MATCHES_THRESHOLD;
+      3. LAST season's starts, shrunk toward the flat prior, when there is no
+         current-season data at all (GW1). Flagged "start_prob_from_prior_season".
+      4. the flat `default_start_probability`, when we know nothing whatsoever
+         (promoted club, first season in England). Flagged "start_prob_default".
+
+    (3) is what closes KNOWN DATA GAP #1. It is deliberately ranked BELOW the
+    current-season branches: last season is evidence about this season, never a
+    replacement for watching this one. Callers can still bypass all of it with
+    an explicit `start_probability` override, which is how the position
+    research agents inject their judgement.
 
     IMPORTANT: "zero minutes" is NOT always "no information". Once several
     gameweeks have been played, a player still on zero minutes is strong
@@ -395,10 +520,16 @@ def estimate_start_probability(player_row: Any,
     starts = _to_float(_get(player_row, "starts", 0.0))
 
     if matches_played is None or matches_played < 1:
-        # Genuine no-data case (preseason / new season) -- nobody has a
-        # track record yet, so fall back to the flat prior.
-        base = default_start_probability
-        flags.append("start_prob_default")
+        # Genuine no-data case (preseason / new season): nobody has a
+        # CURRENT-season track record yet. Reach for last season's if we have
+        # it, and only fall back to the flat prior if we don't.
+        prev_base = prior_season_start_rate(player_row, default_start_probability)
+        if prev_base is None:
+            base = default_start_probability
+            flags.append("start_prob_default")
+        else:
+            base = prev_base
+            flags.append("start_prob_from_prior_season")
     elif minutes <= 0:
         if matches_played >= NEVER_APPEARED_MATCHES_THRESHOLD:
             # Enough of the season has happened that a zero is a real signal,
@@ -476,14 +607,61 @@ def _defcon_count_for_position(player_row: Any, position: str) -> float:
     present (older data/fpl_client.py, or a source that doesn't carry them --
     the caller falls back to the flat prior in that case, same as before).
     """
-    cbi = _to_float(_get(player_row, "clearances_blocks_interceptions", 0.0))
-    tackles = _to_float(_get(player_row, "tackles", 0.0))
+    return _defcon_count(player_row, position, suffix="")
+
+
+def _defcon_columns_for_position(position: str) -> list[str]:
     if position == "DEF":
-        return cbi + tackles
+        return ["clearances_blocks_interceptions", "tackles"]
     if position in ("MID", "FWD"):
-        recoveries = _to_float(_get(player_row, "recoveries", 0.0))
-        return cbi + tackles + recoveries
-    return 0.0
+        return ["clearances_blocks_interceptions", "tackles", "recoveries"]
+    return []
+
+
+def _defcon_count(player_row: Any, position: str, suffix: str = "") -> float:
+    return sum(_to_float(_get(player_row, col + suffix, 0.0))
+               for col in _defcon_columns_for_position(position))
+
+
+def prior_season_defcon_rate_inputs(player_row: Any,
+                                    position: str) -> tuple[float, float] | None:
+    """(prior-season DefCon count, prior-season minutes) or None if unusable.
+
+    None means "no prior-season defensive data" -- either the columns aren't
+    attached at all, or this player has no Premier League history. The caller
+    then falls back to the flat positional prior, exactly as before.
+
+    Zero prior-season minutes also returns None: a per-90 rate off zero minutes
+    carries no information (`shrunk_per90_rate` would just hand the prior back),
+    and returning None keeps the audit flag honest about where the number came
+    from.
+    """
+    prev_minutes = _optional_float(player_row, "minutes_prev_season")
+    if prev_minutes is None or prev_minutes <= 0:
+        return None
+    values = [_optional_float(player_row, col + "_prev_season")
+              for col in _defcon_columns_for_position(position)]
+    if not values or all(v is None for v in values):
+        return None
+    return sum(v for v in values if v is not None), prev_minutes
+
+
+def prior_season_attacking_inputs(player_row: Any) -> tuple[float, float, float] | None:
+    """(prior-season xG, prior-season xA, prior-season minutes) or None.
+
+    Same contract as `prior_season_defcon_rate_inputs`. Used only when the
+    player has zero CURRENT-season minutes -- which, pre-rollover, means the
+    carryover numbers in bootstrap-static are already doing this job, and
+    post-rollover means this is the only attacking data that exists.
+    """
+    prev_minutes = _optional_float(player_row, "minutes_prev_season")
+    if prev_minutes is None or prev_minutes <= 0:
+        return None
+    prev_xg = _optional_float(player_row, "expected_goals_prev_season")
+    prev_xa = _optional_float(player_row, "expected_assists_prev_season")
+    if prev_xg is None and prev_xa is None:
+        return None
+    return prev_xg or 0.0, prev_xa or 0.0, prev_minutes
 
 
 # ---------------------------------------------------------------------------
@@ -701,11 +879,21 @@ def calculate_xp(player_row: Any,
         xg_prior *= PROMOTED_XG90_PRIOR_DISCOUNT
         xa_prior *= PROMOTED_XG90_PRIOR_DISCOUNT
 
+    # Sample the rates come from. Normally the current season; with zero
+    # current-season minutes, last season if we have it (otherwise the
+    # shrinkage below just returns the flat positional prior and every forward
+    # in the game looks identical -- which is precisely the GW1 failure mode
+    # this closes).
+    rate_xg, rate_xa, rate_minutes = xg_total, xa_total, minutes_played
     if minutes_played <= 0:
         flags.append("no_minutes_history")
+        prev_attacking = prior_season_attacking_inputs(player_row)
+        if prev_attacking is not None:
+            rate_xg, rate_xa, rate_minutes = prev_attacking
+            flags.append("xg_xa_from_prior_season")
 
-    xg90 = shrunk_per90_rate(xg_total, minutes_played, xg_prior, prior_weight)
-    xa90 = shrunk_per90_rate(xa_total, minutes_played, xa_prior, prior_weight)
+    xg90 = shrunk_per90_rate(rate_xg, rate_minutes, xg_prior, prior_weight)
+    xa90 = shrunk_per90_rate(rate_xa, rate_minutes, xa_prior, prior_weight)
 
     exp_goals = xg90 * minutes_share * attack_mult
     exp_assists = xa90 * minutes_share * attack_mult
@@ -739,25 +927,36 @@ def calculate_xp(player_row: Any,
     # more -- exceeding the threshold is worth zero extra points.
     #
     # Rate comes from (in order of preference): an explicit override (research
-    # agent's own read on the player) > the player's own season CBIT/CBIRT
-    # count, shrunk toward the positional prior exactly like xG/xA above >
-    # the flat positional prior alone, if no counting-stat columns exist at
-    # all (older/partial data). Backtested: the shrunk-own-rate version lifts
+    # agent's own read on the player) > the player's own CURRENT-season
+    # CBIT/CBIRT count, shrunk toward the positional prior exactly like xG/xA
+    # above > his PRIOR-season count, shrunk the same way, when the current
+    # season hasn't started > the flat positional prior alone, if no
+    # counting-stat columns exist at all (older/partial data, or a player with
+    # no Premier League history). Backtested: the shrunk-own-rate version lifts
     # DefCon top-50 hit rate from 20.7% to 34.5% vs the flat prior alone --
-    # see backtest/results_2025_26.md section 8.
+    # see backtest/results_2025_26.md section 8. The prior-season tier extends
+    # that same win to GW1, where the flat prior would otherwise give a
+    # ball-winning centre-back and a No. 10 the same defensive rate.
     threshold = DEFCON_THRESHOLD[position]
     defcon_per90 = overrides.get("defcon_per90")
     if defcon_per90 is None:
+        dc_prior_weight = PRIOR_WEIGHT_90S * (PROMOTED_PRIOR_WEIGHT_MULTIPLIER if is_promoted else 1.0)
         defcon_count = _defcon_count_for_position(player_row, position)
         has_defcon_data = (
             _get(player_row, "clearances_blocks_interceptions", None) is not None
             or _get(player_row, "tackles", None) is not None
         )
+        prev_defcon = (prior_season_defcon_rate_inputs(player_row, position)
+                       if not (has_defcon_data and minutes_played > 0) else None)
         if has_defcon_data and minutes_played > 0:
-            dc_prior_weight = PRIOR_WEIGHT_90S * (PROMOTED_PRIOR_WEIGHT_MULTIPLIER if is_promoted else 1.0)
             defcon_per90 = shrunk_per90_rate(
                 defcon_count, minutes_played, DEFCON_PER90_PRIOR[position], dc_prior_weight)
             flags.append("defcon_own_rate")
+        elif prev_defcon is not None:
+            prev_count, prev_minutes = prev_defcon
+            defcon_per90 = shrunk_per90_rate(
+                prev_count, prev_minutes, DEFCON_PER90_PRIOR[position], dc_prior_weight)
+            flags.append("defcon_prior_season_rate")
         else:
             defcon_per90 = DEFCON_PER90_PRIOR[position]
             if threshold is not None:
@@ -866,8 +1065,16 @@ def infer_matches_played(players_df: pd.DataFrame) -> float:
     """How many league matches the season is into, inferred from the pool.
 
     The busiest outfielder plays close to every minute, so max(minutes)/90 is a
-    good proxy. Returns 0 pre-season (every player on 0 minutes), which is the
-    signal `estimate_start_probability` uses to fall back to its flat prior.
+    good proxy. Returns 0 when every player is on 0 minutes, which is the signal
+    `estimate_start_probability` uses to reach for prior-season data (or, absent
+    that, its flat prior).
+
+    CAVEAT (see the PRE-SEASON CARRYOVER note at the top of this module): in the
+    pre-rollover window bootstrap-static still reports LAST season's minutes, so
+    this returns ~38 when the new season is actually 0 matches old. It cannot
+    detect that from the player pool alone. Callers that can tell -- e.g. by
+    counting `finished` gameweeks in bootstrap `events` -- must pass
+    `matches_played` explicitly instead of relying on this.
     """
     if "minutes" not in players_df.columns or len(players_df) == 0:
         return 0.0
@@ -1113,6 +1320,9 @@ __all__ = [
     "calculate_xp_for_gameweek",
     "apply_manual_adjustments",
     "estimate_start_probability",
+    "prior_season_start_rate",
+    "prior_season_defcon_rate_inputs",
+    "prior_season_attacking_inputs",
     "minutes_distribution",
     "fixture_context",
     "expected_bonus_points",

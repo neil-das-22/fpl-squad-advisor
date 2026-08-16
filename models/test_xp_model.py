@@ -134,6 +134,202 @@ def test_start_probability_and_minutes():
     print(f"  minutes ok (starter p={p:.2f}, doubtful p={p_doubt:.2f})")
 
 
+def _with_prior_season(web_name, **prev_fields):
+    """A synthetic-pool player row with prior-season columns attached.
+
+    Mirrors what `fpl_client.attach_prior_season_stats()` produces. Anything
+    not passed is left as NaN, i.e. "no data", exactly as an unmatched player
+    comes out of the left join.
+    """
+    row = _player(web_name).copy()
+    for col in ("minutes_prev_season", "starts_prev_season",
+                "total_points_prev_season", "clean_sheets_prev_season",
+                "clearances_blocks_interceptions_prev_season",
+                "tackles_prev_season", "recoveries_prev_season",
+                "expected_goals_prev_season", "expected_assists_prev_season"):
+        row[col] = prev_fields.pop(col, float("nan"))
+    assert not prev_fields, f"unknown prior-season fields: {list(prev_fields)}"
+    return row
+
+
+def test_start_probability_from_prior_season():
+    """KNOWN DATA GAP #1: at GW1 nobody has current-season minutes, so last
+    season's starts have to do the work instead of a flat 65% for everyone."""
+    # Nailed-on starter last season (37 of 38 starts) -- e.g. Raya.
+    nailed = _with_prior_season("Nwosu", minutes_prev_season=3330,
+                                starts_prev_season=37)
+    p_nailed, flags_nailed = m.estimate_start_probability(nailed, matches_played=0)
+    assert "start_prob_from_prior_season" in flags_nailed
+    assert "start_prob_default" not in flags_nailed
+    assert p_nailed > 0.85, p_nailed
+    assert p_nailed > m.DEFAULT_START_PROBABILITY
+
+    # The real Illan Meslier case: he WAS in the Premier League squad last
+    # season and played literally zero minutes, which is why he is a
+    # third-choice keeper now. A measured zero is strong evidence, and the
+    # model has to reach that conclusion on its own -- without a research
+    # agent's news search, and before a single minute of the new season.
+    meslier = _with_prior_season("Nwosu", minutes_prev_season=0,
+                                 starts_prev_season=0)
+    p_meslier, flags_meslier = m.estimate_start_probability(meslier, matches_played=0)
+    assert "start_prob_from_prior_season" in flags_meslier
+    assert p_meslier < 0.15, p_meslier
+    assert p_meslier < m.DEFAULT_START_PROBABILITY / 3
+    # ...but not literally impossible. Shrinkage keeps him off zero.
+    assert p_meslier > 0.0
+    assert p_nailed > p_meslier * 5
+
+    # No prior-season row at all (promoted club, or a first-time arrival from
+    # abroad) -> NaN -> the flat prior, loudly flagged. This must NOT be
+    # confused with the zero-minutes case above.
+    unknown = _with_prior_season("Nwosu")
+    p_unknown, flags_unknown = m.estimate_start_probability(unknown, matches_played=0)
+    assert "start_prob_default" in flags_unknown
+    assert "start_prob_from_prior_season" not in flags_unknown
+    assert abs(p_unknown - m.DEFAULT_START_PROBABILITY) < 1e-9
+    assert p_unknown > p_meslier, "NaN prior-season must not be treated as a zero"
+
+    # Only `minutes_prev_season` available (partial source): back out an
+    # implied start count rather than giving up.
+    mins_only = _with_prior_season("Nwosu", minutes_prev_season=2800)
+    p_mins, flags_mins = m.estimate_start_probability(mins_only, matches_played=0)
+    assert "start_prob_from_prior_season" in flags_mins
+    assert p_mins > m.DEFAULT_START_PROBABILITY
+
+    # CURRENT-season evidence still outranks last season. A player with a full
+    # prior season who has not featured once in 10 gameweeks of THIS season is
+    # a confirmed non-player, not a nailed-on starter.
+    stale = _with_prior_season("Nwosu", minutes_prev_season=3330,
+                               starts_prev_season=37)
+    p_stale, flags_stale = m.estimate_start_probability(stale, matches_played=10)
+    assert "start_prob_never_appeared" in flags_stale
+    assert "start_prob_from_prior_season" not in flags_stale
+    assert abs(p_stale - m.NEVER_APPEARED_START_PROBABILITY) < 1e-9
+
+    # Availability still applies on top of the prior-season path.
+    doubtful = _with_prior_season("Novak", minutes_prev_season=3330,
+                                  starts_prev_season=37)
+    p_doubt, _ = m.estimate_start_probability(doubtful, matches_played=0)
+    assert p_doubt < p_nailed
+
+    print(f"  prior-season start probability ok (37 starts -> {p_nailed:.3f}, "
+          f"0 minutes -> {p_meslier:.3f}, no history -> {p_unknown:.3f})")
+
+
+def test_defcon_prefers_prior_season_rate_over_flat_prior():
+    """With no current-season minutes, last season's CBIT/CBIRT beats a flat
+    positional guess -- a ball-winning defender and a passenger should not get
+    the same defensive rate at GW1."""
+    fx = _fixture(1)
+    mci, cov = _team("Man City"), _team("Coventry")
+
+    base = _player("Karlsson").copy()
+    base["minutes"] = 0                      # season hasn't started
+    base["clearances_blocks_interceptions"] = 0
+    base["tackles"] = 0
+    base["recoveries"] = 0
+
+    def run(row):
+        return m.calculate_xp(row, fx, cov, mci, matches_played=0)
+
+    # No prior-season data -> flat positional prior, as before.
+    no_prior = base.copy()
+    for col in ("minutes_prev_season", "starts_prev_season",
+                "clearances_blocks_interceptions_prev_season",
+                "tackles_prev_season", "recoveries_prev_season",
+                "expected_goals_prev_season", "expected_assists_prev_season"):
+        no_prior[col] = float("nan")
+    res_flat = run(no_prior)
+    assert "defcon_prior" in res_flat["flags"]
+    assert "defcon_prior_season_rate" not in res_flat["flags"]
+
+    # A genuine DefCon monster last season (300 CBIT over 3000 minutes = 9/90,
+    # well above the DEF prior) -> higher DefCon probability than the flat prior.
+    monster = no_prior.copy()
+    monster["minutes_prev_season"] = 3000
+    monster["starts_prev_season"] = 34
+    monster["clearances_blocks_interceptions_prev_season"] = 380
+    monster["tackles_prev_season"] = 100
+    res_monster = run(monster)
+    assert "defcon_prior_season_rate" in res_monster["flags"]
+    assert "defcon_prior" not in res_monster["flags"]
+    assert res_monster["defcon_prob"] > res_flat["defcon_prob"]
+
+    # ...and a player who barely defended -> lower than the flat prior. Both
+    # directions matter; a prior that only ever raises numbers is just a bonus.
+    passenger = no_prior.copy()
+    passenger["minutes_prev_season"] = 3000
+    passenger["starts_prev_season"] = 34
+    passenger["clearances_blocks_interceptions_prev_season"] = 40
+    passenger["tackles_prev_season"] = 10
+    res_passenger = run(passenger)
+    assert "defcon_prior_season_rate" in res_passenger["flags"]
+    assert res_passenger["defcon_prob"] < res_flat["defcon_prob"]
+    assert res_monster["defcon_prob"] > res_passenger["defcon_prob"]
+
+    # CURRENT-season data, when it exists, still wins.
+    in_season = monster.copy()
+    in_season["minutes"] = 900
+    in_season["clearances_blocks_interceptions"] = 20
+    in_season["tackles"] = 5
+    res_in_season = m.calculate_xp(in_season, fx, cov, mci, matches_played=10)
+    assert "defcon_own_rate" in res_in_season["flags"]
+    assert "defcon_prior_season_rate" not in res_in_season["flags"]
+
+    # An explicit override still beats everything.
+    overridden = m.calculate_xp(monster, fx, cov, mci, matches_played=0,
+                                defcon_per90=0.0)
+    assert overridden["defcon_prob"] == 0.0
+
+    print(f"  defcon prior-season shrinkage ok (monster {res_monster['defcon_prob']:.3f} > "
+          f"flat prior {res_flat['defcon_prob']:.3f} > passenger {res_passenger['defcon_prob']:.3f})")
+
+
+def test_xg_xa_fall_back_to_prior_season():
+    """Pre-season the live payload's xG/xA are last season's carryover and are
+    zeroed the moment FPL rolls the season over. Without a prior-season
+    fallback every forward would collapse onto the same flat positional prior
+    at exactly the gameweek this model exists to predict."""
+    fx = _fixture(1)
+    mci, cov = _team("Man City"), _team("Coventry")
+
+    base = _player("Ahlberg").copy()
+    base["minutes"] = 0
+    base["expected_goals"] = "0.00"
+    base["expected_assists"] = "0.00"
+    for col in ("minutes_prev_season", "expected_goals_prev_season",
+                "expected_assists_prev_season"):
+        base[col] = float("nan")
+
+    flat = m.calculate_xp(base, fx, cov, mci, matches_played=0,
+                          start_probability=0.9)
+    assert "no_minutes_history" in flat["flags"]
+    assert "xg_xa_from_prior_season" not in flat["flags"]
+
+    elite = base.copy()
+    elite["minutes_prev_season"] = 2953
+    elite["expected_goals_prev_season"] = 25.50
+    elite["expected_assists_prev_season"] = 2.67
+    scored = m.calculate_xp(elite, fx, cov, mci, matches_played=0,
+                            start_probability=0.9)
+    assert "xg_xa_from_prior_season" in scored["flags"]
+    assert scored["expected_goals"] > flat["expected_goals"] * 2
+    assert scored["xp_total"] > flat["xp_total"]
+
+    # A striker who did play but produced nothing must land BELOW the flat
+    # positional prior, not level with it.
+    blank = base.copy()
+    blank["minutes_prev_season"] = 2000
+    blank["expected_goals_prev_season"] = 0.5
+    blank["expected_assists_prev_season"] = 0.2
+    poor = m.calculate_xp(blank, fx, cov, mci, matches_played=0,
+                          start_probability=0.9)
+    assert poor["expected_goals"] < flat["expected_goals"]
+
+    print(f"  prior-season xG/xA fallback ok (elite {scored['expected_goals']:.2f} vs "
+          f"flat prior {flat['expected_goals']:.2f} vs blank {poor['expected_goals']:.2f})")
+
+
 # ---------------------------------------------------------------------------
 # Fixture model
 # ---------------------------------------------------------------------------
@@ -423,6 +619,9 @@ def run_tests():
     test_prob_at_least()
     test_shrinkage()
     test_start_probability_and_minutes()
+    test_start_probability_from_prior_season()
+    test_defcon_prefers_prior_season_rate_over_flat_prior()
+    test_xg_xa_fall_back_to_prior_season()
     test_fixture_context_directionality()
     test_calculate_xp_components_and_rules()
     test_goal_points_scale_by_position()
