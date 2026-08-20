@@ -1,0 +1,297 @@
+{% extends "base.html" %}
+{% block title %}{% if p %}{{ p['web_name'] }} -- FPL Squad Advisor{% else %}Player -- FPL Squad Advisor{% end %}{% end %}
+
+{% block content %}
+{% if error %}
+  <div class="hero">
+    <h1>Hmm, that didn't work</h1>
+    <p class="lede">{{ error }}</p>
+    <a class="btn" href="/players">&larr; Back to players</a>
+  </div>
+{% else %}
+
+  <div class="hero" style="padding-top:40px; padding-bottom:20px; display:flex; align-items:center; gap:20px; flex-wrap:wrap;">
+    <div class="detail-photo-wrap">
+      <div class="detail-photo-clip">
+        <img class="detail-photo" src="{{ p['photo_url'] }}" alt="{{ p['web_name'] }}"
+             onerror="this.onerror=null; this.style.transform='none'; this.src='data:image/svg+xml;utf8,<svg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 96 96%27><rect width=%2796%27 height=%2796%27 rx=%2748%27 fill=%27%23262c3d%27/><text x=%2748%27 y=%2758%27 font-size=%2736%27 text-anchor=%27middle%27 fill=%27%239aa3b8%27 font-family=%27sans-serif%27>{{ p['web_name'][0] }}</text></svg>';">
+      </div>
+    </div>
+    <div>
+      <div class="eyebrow">
+        <span class="pos-tag pos-{{ p['position'] }}">{{ p['position'] }}</span>&nbsp;{{ p['team_name'] }}
+      </div>
+      <h1 style="margin-bottom:4px;">{{ p['web_name'] }}</h1>
+      <p class="lede" style="margin:0;">
+        {% if p.get('full_name') %}{{ p['full_name'] }} &middot; {% end %}&pound;{{ '%.1f' % p['price_m'] }}m
+      </p>
+    </div>
+  </div>
+
+  {% if p.get('news') %}
+  <div class="banner warn">{{ p['news'] }}</div>
+  {% end %}
+
+  <div class="card-grid">
+    <div class="stat-card">
+      <div class="stat-value positive">{{ '%.1f' % (p['xp'] or 0) }}</div>
+      <div class="stat-label">Projected points, GW{{ gw_start }}&ndash;{{ gw_end }}</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-value">{{ int(p['total_points_prev_season']) if p.get('has_prior_season') else 0 }}</div>
+      <div class="stat-label">Points, last season (2025/26)</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-value">{{ p['form'] or '0.0' }}</div>
+      <div class="stat-label">Form</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-value">{{ p['selected_by_percent'] or '0' }}%</div>
+      <div class="stat-label">Selected by</div>
+    </div>
+  </div>
+
+  {% if p.get('upcoming_fixtures') %}
+  <div class="section">
+    <h2>Next fixtures</h2>
+    <p>How {{ p['web_name'] }} did against each of these same opponents last season, where they and the opponent were both in the league.</p>
+    <div class="card-grid">
+      {% for f in p['upcoming_fixtures'] %}
+      <div class="fixture-card">
+        <div class="fixture-card-head">
+          {% if f.get('opponent_badge_url') %}
+          <img class="fixture-badge" src="{{ f['opponent_badge_url'] }}" alt="{{ f['opponent'] }}" onerror="this.style.display='none';">
+          {% end %}
+          <div>
+            <div class="fixture-opponent">{{ f['opponent'] }}</div>
+            <div class="fixture-meta">GW{{ f['gameweek'] }} &middot; {% if f['is_home'] %}Home{% else %}Away{% end %}</div>
+          </div>
+        </div>
+        {% if f.get('difficulty') %}
+        <span class="fixture-difficulty fdiff-{{ f['difficulty'] }}">Difficulty {{ f['difficulty'] }}/5</span>
+        {% end %}
+        <div class="fixture-history">
+          {% if f.get('history_vs_opponent') %}
+          {% set h = f['history_vs_opponent'] %}
+          Last season vs {{ f['opponent'] }} ({{ h['matches'] }} match{% if h['matches'] != 1 %}es{% end %}):
+          <strong>{{ h['total_points'] }} pts</strong>, {{ h['goals'] }}G {{ h['assists'] }}A in {{ h['minutes'] }} mins.
+          {% else %}
+          Didn't face {{ f['opponent'] }} last season (promoted, or a transfer since).
+          {% end %}
+        </div>
+      </div>
+      {% end %}
+    </div>
+  </div>
+  {% end %}
+
+  {% set has_setpiece = p.get('penalties_order') == 1 or p.get('corners_and_indirect_freekicks_order') == 1 or p.get('direct_freekicks_order') == 1 %}
+  {% if has_setpiece %}
+  <div class="section">
+    <h2>Set-piece duty</h2>
+    <div style="display:flex; gap:10px; flex-wrap:wrap;">
+      {% if p.get('penalties_order') == 1 %}<span class="pill pill-positive">Primary penalty taker</span>{% end %}
+      {% if p.get('corners_and_indirect_freekicks_order') == 1 %}<span class="pill pill-positive">Primary corners / indirect FK taker</span>{% end %}
+      {% if p.get('direct_freekicks_order') == 1 %}<span class="pill pill-positive">Primary direct FK taker</span>{% end %}
+    </div>
+  </div>
+  {% end %}
+
+  <div class="section">
+    <h2>Percentile profile vs. other {{ p['position'] }}s</h2>
+    <p>Where {{ p['web_name'] }} sits against the {{ p.get('position_pool_size', 0) }} other {{ p['position'] }}s in the pool, across FPL results and underlying output. 100 = best in position, the dashed ring is the 50th percentile.</p>
+    <div class="card"><canvas id="radarChart" height="260"></canvas></div>
+  </div>
+
+  <div class="section">
+    <h2>Where they rank</h2>
+    <div class="card">
+      {% for key, r in p['ranks'].items() %}
+      {% if r.get('percentile') is not None %}
+      <div class="rank-row">
+        <div class="rank-row-header">
+          <span class="rank-row-label">{{ r['label'] }}</span>
+          <span class="rank-row-value">#{{ r['rank'] }} of {{ r['n'] }} &middot; top {{ '%.0f' % (100 - r['percentile']) }}%</span>
+        </div>
+        <div class="rank-bar-track"><div class="rank-bar-fill" style="width:{{ r['percentile'] }}%;"></div></div>
+      </div>
+      {% end %}
+      {% end %}
+    </div>
+  </div>
+
+  <div class="section">
+    <h2>Projected points by gameweek</h2>
+    <p>GW{{ gw_start }}&ndash;{{ gw_end }}, this model's own projection -- see the home page for how it's built.</p>
+    <div class="card"><canvas id="gwChart" height="90"></canvas></div>
+  </div>
+
+  <div class="section">
+    <div class="section-header">
+      <h2>Alternatives in a similar price range</h2>
+    </div>
+    <p>Same position, priced up to <span id="altDeltaLabel">&pound;{{ '%.1f' % 1.0 }}m</span> more than
+      {{ p['web_name'] }}'s own &pound;{{ '%.1f' % p['price_m'] }}m -- ranked by projected points, GW{{ gw_start }}&ndash;{{ gw_end }}.</p>
+    <div style="display:flex; align-items:center; gap:10px; margin:-8px 0 18px; max-width:280px;">
+      <label for="altDeltaInput" style="font-size:13px; color:var(--text-tertiary); white-space:nowrap;">Max &pound;m over price</label>
+      <input type="number" id="altDeltaInput" min="0" max="5" step="0.5" value="1.0">
+    </div>
+    <div class="card">
+      <div class="lb-list" id="altList">
+        <p style="margin:0; color:var(--text-tertiary);">Loading&hellip;</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="section">
+    <h2>Last season, for comparison</h2>
+    {% if p.get('has_prior_season') %}
+    <div class="card-grid">
+      <div class="stat-card">
+        <div class="stat-value">{{ p['total_points_prev_season'] }}</div>
+        <div class="stat-label">Total points, 2025/26</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-value">{{ p['goals_scored_prev_season'] }}</div>
+        <div class="stat-label">Goals, 2025/26</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-value">{{ p['assists_prev_season'] }}</div>
+        <div class="stat-label">Assists, 2025/26</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-value">{% if p.get('price_prev_season_m') %}&pound;{{ '%.1f' % p['price_prev_season_m'] }}m{% else %}&mdash;{% end %}</div>
+        <div class="stat-label">Price, end of 2025/26</div>
+      </div>
+    </div>
+    {% else %}
+    <div class="card">
+      <p style="margin:0;">No Premier League record last season -- a new arrival or a promoted-team player. The model uses a league-average flat prior for players like this until real 2026/27 minutes build up.</p>
+    </div>
+    {% end %}
+  </div>
+
+{% end %}
+{% end %}
+
+{% block scripts %}
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
+<script>
+{% if not error %}
+{% import json as _json %}
+const RANKS = {% raw _json.dumps(p['ranks']) %};
+
+const radarEntries = Object.values(RANKS).filter(r => r.percentile !== null && r.percentile !== undefined);
+new Chart(document.getElementById('radarChart').getContext('2d'), {
+  type: 'radar',
+  data: {
+    labels: radarEntries.map(r => r.label),
+    datasets: [
+      {
+        label: 'League average',
+        data: radarEntries.map(() => 50),
+        borderColor: cssVar('--text-tertiary'),
+        backgroundColor: 'transparent',
+        borderWidth: 1,
+        borderDash: [4, 4],
+        pointRadius: 0,
+      },
+      {
+        label: '{{ p["web_name"] }}',
+        data: radarEntries.map(r => r.percentile),
+        borderColor: '#8b7cf6',
+        backgroundColor: 'rgba(139, 124, 246, 0.28)',
+        borderWidth: 2,
+        pointBackgroundColor: '#8b7cf6',
+        pointRadius: 3,
+      },
+    ],
+  },
+  options: {
+    plugins: { legend: { labels: { color: cssVar('--text-secondary'), font: { family: 'Inter' } } } },
+    scales: {
+      r: {
+        angleLines: { color: cssVar('--border-subtle') },
+        grid: { color: cssVar('--border-subtle') },
+        pointLabels: { color: cssVar('--text-secondary'), font: { size: 11, family: 'Inter' } },
+        ticks: { color: cssVar('--text-tertiary'), backdropColor: 'transparent', stepSize: 25 },
+        suggestedMin: 0,
+        suggestedMax: 100,
+      },
+    },
+  },
+});
+
+const gwCtx = document.getElementById('gwChart').getContext('2d');
+const gwGradient = gwCtx.createLinearGradient(0, 0, 0, 240);
+gwGradient.addColorStop(0, 'rgba(139, 124, 246, 0.45)');
+gwGradient.addColorStop(1, 'rgba(139, 124, 246, 0.02)');
+
+new Chart(gwCtx, {
+  type: 'line',
+  data: {
+    labels: ['GW{{ gw_start }}', 'GW{{ gw_start + 1 }}', 'GW{{ gw_start + 2 }}', 'GW{{ gw_start + 3 }}'],
+    datasets: [{
+      label: 'Projected points',
+      data: [{{ p['xp_gw1'] or 0 }}, {{ p['xp_gw2'] or 0 }}, {{ p['xp_gw3'] or 0 }}, {{ p['xp_gw4'] or 0 }}],
+      borderColor: '#8b7cf6',
+      backgroundColor: gwGradient,
+      fill: true,
+      tension: 0.35,
+      borderWidth: 2,
+      pointBackgroundColor: '#8b7cf6',
+      pointRadius: 4,
+    }],
+  },
+  options: {
+    plugins: { legend: { display: false } },
+    scales: {
+      x: { ticks: { color: cssVar('--text-tertiary') }, grid: { color: cssVar('--border-subtle') } },
+      y: { ticks: { color: cssVar('--text-tertiary') }, grid: { color: cssVar('--border-subtle') }, beginAtZero: true },
+    },
+  },
+});
+
+// --- Price-range alternatives -------------------------------------------
+
+function loadAlternatives(maxDelta) {
+  const list = document.getElementById('altList');
+  list.innerHTML = '<p style="margin:0; color:var(--text-tertiary);">Loading&hellip;</p>';
+  fetch('/api/player/{{ p["id"] }}/alternatives.json?max_delta=' + encodeURIComponent(maxDelta))
+    .then(res => res.json())
+    .then(data => {
+      const alts = data.alternatives || [];
+      document.getElementById('altDeltaLabel').textContent = '£' + Number(data.max_delta).toFixed(1) + 'm';
+      if (!alts.length) {
+        list.innerHTML = '<p style="margin:0;">No alternatives found in that price range.</p>';
+        return;
+      }
+      list.innerHTML = alts.map(a =>
+        '<a class="lb-row" href="/player/' + a.id + '">' +
+          '<div class="mini-photo-wrap"><div class="mini-photo-clip">' +
+            '<img class="mini-photo" src="' + (a.photo_url || '') + '" alt="' + a.web_name + '" onerror="this.style.display=\'none\'"></div></div>' +
+          '<div class="lb-row-info">' +
+            '<div class="lb-row-name">' + a.web_name + '</div>' +
+            '<div class="lb-row-meta">' + a.team_name + ' &middot; £' + Number(a.price_m).toFixed(1) + 'm</div>' +
+          '</div>' +
+          '<div>' +
+            '<div class="lb-row-stat">' + Number(a.xp).toFixed(1) + '</div>' +
+            '<div class="lb-row-stat-sub">xP</div>' +
+          '</div>' +
+        '</a>'
+      ).join('');
+    })
+    .catch(() => { list.innerHTML = '<p style="margin:0;">Couldn\'t load alternatives right now.</p>'; });
+}
+
+loadAlternatives(1.0);
+document.getElementById('altDeltaInput').addEventListener('change', (e) => {
+  let v = parseFloat(e.target.value);
+  if (isNaN(v) || v < 0) v = 0;
+  if (v > 5) v = 5;
+  e.target.value = v;
+  loadAlternatives(v);
+});
+{% end %}
+</script>
+{% end %}

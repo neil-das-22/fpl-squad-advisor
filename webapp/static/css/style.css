@@ -1,0 +1,1324 @@
+/* ===========================================================================
+   Design system -- FPL Squad Advisor
+   Dark, data-forward theme distinct from FPL's own purple/green branding:
+   near-black base, a violet primary accent, and a pitch-green "positive
+   value" accent (xP, gains) contrasted against coral for negative/warning
+   reads. Built as CSS custom properties so every page shares one source
+   of truth instead of re-deriving colors per template.
+   ========================================================================= */
+
+:root {
+  /* Surfaces */
+  --bg: #0a0c12;
+  --bg-elevated: #10131b;
+  --surface: #151925;
+  --surface-hover: #1b2030;
+  --border: #262c3d;
+  --border-subtle: #1b2030;
+
+  /* Text */
+  --text-primary: #f0f2f8;
+  --text-secondary: #9aa3b8;
+  --text-tertiary: #676f85;
+
+  /* Accents */
+  --accent: #8b7cf6;         /* primary violet -- brand, links, CTAs */
+  --accent-bright: #a594ff;
+  --accent-dim: rgba(139, 124, 246, 0.14);
+  --positive: #34d399;       /* pitch green -- good xP, gains, captain */
+  --positive-dim: rgba(52, 211, 153, 0.14);
+  --negative: #fb7185;       /* coral -- hits, weak links, warnings */
+  --negative-dim: rgba(251, 113, 133, 0.14);
+  --gold: #fbbf24;           /* captain armband, premium picks */
+  --nav-bg: rgba(10, 12, 18, 0.85);
+
+  /* Position tags */
+  --pos-gkp: #fbbf24;
+  --pos-def: #60a5fa;
+  --pos-mid: #34d399;
+  --pos-fwd: #fb7185;
+
+  /* Shape / motion */
+  --radius-sm: 8px;
+  --radius-md: 14px;
+  --radius-lg: 20px;
+  --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.4), 0 8px 24px rgba(0, 0, 0, 0.28);
+  --transition: 160ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* Light theme -- toggled via [data-theme="light"] on <html>, see base.html.
+   The pitch itself stays green in both themes (it's turf, not UI chrome). */
+:root[data-theme="light"] {
+  --bg: #f3f4f9;
+  --bg-elevated: #ffffff;
+  --surface: #ffffff;
+  --surface-hover: #eef0f7;
+  --border: #e0e3ee;
+  --border-subtle: #ececf3;
+
+  --text-primary: #14161f;
+  --text-secondary: #4c5166;
+  --text-tertiary: #767c92;
+
+  --accent: #6f5ce6;
+  --accent-bright: #5b46d6;
+  --accent-dim: rgba(111, 92, 230, 0.10);
+  --positive: #0f9d6e;
+  --positive-dim: rgba(15, 157, 110, 0.12);
+  --negative: #d6365f;
+  --negative-dim: rgba(214, 54, 95, 0.10);
+  --gold: #b8790a;
+  --nav-bg: rgba(255, 255, 255, 0.85);
+
+  --shadow-card: 0 1px 2px rgba(20, 22, 31, 0.06), 0 8px 20px rgba(20, 22, 31, 0.08);
+}
+
+:root[data-theme="light"] body {
+  background-image:
+    radial-gradient(ellipse 900px 500px at 15% -10%, rgba(111, 92, 230, 0.06), transparent),
+    radial-gradient(ellipse 700px 400px at 100% 0%, rgba(15, 157, 110, 0.05), transparent);
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  background: var(--bg);
+  color: var(--text-primary);
+  font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+body {
+  background-image:
+    radial-gradient(ellipse 900px 500px at 15% -10%, rgba(139, 124, 246, 0.10), transparent),
+    radial-gradient(ellipse 700px 400px at 100% 0%, rgba(52, 211, 153, 0.06), transparent);
+  background-attachment: fixed;
+  min-height: 100vh;
+}
+
+a { color: inherit; text-decoration: none; }
+
+/* --- Layout ------------------------------------------------------------ */
+
+.page {
+  max-width: 1080px;
+  margin: 0 auto;
+  padding: 0 24px 80px;
+}
+
+.navbar {
+  border-bottom: 1px solid var(--border-subtle);
+  background: var(--nav-bg);
+  backdrop-filter: blur(12px);
+  position: sticky;
+  top: 0;
+  z-index: 20;
+}
+
+.navbar-inner {
+  max-width: 1080px;
+  margin: 0 auto;
+  padding: 16px 24px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-weight: 700;
+  font-size: 17px;
+  letter-spacing: -0.01em;
+}
+
+.brand-mark {
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  background: linear-gradient(135deg, var(--accent), var(--positive));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 15px;
+}
+
+.nav-right {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+}
+
+.nav-links {
+  display: flex;
+  gap: 28px;
+  font-size: 14px;
+  color: var(--text-secondary);
+}
+
+.nav-links a { transition: color var(--transition); }
+.nav-links a:hover { color: var(--text-primary); }
+
+.theme-toggle-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text-primary);
+  font-size: 15px;
+  cursor: pointer;
+  transition: all var(--transition);
+  flex-shrink: 0;
+}
+
+/* Hamburger -- hidden on desktop, shown only under the mobile breakpoint
+   (see media query at the bottom of this file). Kept as a plain button
+   with three CSS-drawn bars rather than an icon font/image dependency. */
+.nav-toggle-btn {
+  display: none;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  gap: 4px;
+  width: 34px;
+  height: 34px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.nav-toggle-btn span {
+  display: block;
+  width: 16px;
+  height: 2px;
+  border-radius: 1px;
+  background: var(--text-primary);
+}
+
+.theme-toggle-btn:hover { background: var(--surface-hover); border-color: var(--accent); }
+
+/* --- Typography ---------------------------------------------------------*/
+
+h1, h2, h3 { font-weight: 700; letter-spacing: -0.02em; margin: 0 0 8px; }
+h1 { font-size: 40px; line-height: 1.1; }
+h2 { font-size: 24px; }
+h3 { font-size: 16px; color: var(--text-secondary); font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; }
+p { color: var(--text-secondary); line-height: 1.6; margin: 0 0 16px; }
+.lede { font-size: 18px; color: var(--text-secondary); max-width: 640px; }
+.eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--accent-bright);
+  background: var(--accent-dim);
+  padding: 4px 10px;
+  border-radius: 999px;
+  margin-bottom: 16px;
+}
+
+/* --- Hero ---------------------------------------------------------------*/
+
+.hero { padding: 72px 0 48px; }
+
+/* --- Cards ---------------------------------------------------------------*/
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 24px;
+  box-shadow: var(--shadow-card);
+}
+
+.card + .card { margin-top: 16px; }
+
+.card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 16px;
+}
+
+.stat-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 20px;
+}
+
+.stat-value {
+  font-size: 32px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  color: var(--text-primary);
+}
+
+.stat-value.positive { color: var(--positive); }
+.stat-value.negative { color: var(--negative); }
+
+.stat-label {
+  font-size: 13px;
+  color: var(--text-tertiary);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-top: 4px;
+}
+
+.stat-card-sub {
+  font-size: 12px;
+  color: var(--text-tertiary);
+  margin-top: 8px;
+  text-transform: none;
+  letter-spacing: normal;
+}
+
+.stat-card-clickable {
+  cursor: pointer;
+  transition: border-color 0.15s ease, transform 0.15s ease;
+}
+
+.stat-card-clickable:hover {
+  border-color: var(--accent);
+  transform: translateY(-2px);
+}
+
+/* --- Form ---------------------------------------------------------------*/
+
+.lookup-form {
+  display: flex;
+  gap: 10px;
+  margin: 28px 0;
+  max-width: 480px;
+}
+
+input[type="text"], input[type="number"] {
+  flex: 1;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 13px 16px;
+  color: var(--text-primary);
+  font-size: 15px;
+  font-family: inherit;
+  transition: border-color var(--transition);
+}
+
+input:focus { outline: none; border-color: var(--accent); }
+input::placeholder { color: var(--text-tertiary); }
+
+select {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 13px 16px;
+  color: var(--text-primary);
+  font-size: 15px;
+  font-family: inherit;
+  transition: border-color var(--transition);
+}
+
+select:focus { outline: none; border-color: var(--accent); }
+
+.compare-picker { display: flex; gap: 16px; flex-wrap: wrap; margin-bottom: 32px; }
+.compare-picker select { flex: 1; min-width: 220px; }
+
+/* See the long comment above .photo-clip -- same wrap+clip pattern, sized
+   for the player-detail hero photo and the compare-page mini photo. */
+.detail-photo-wrap { position: relative; display: inline-block; width: 96px; height: 96px; flex-shrink: 0; }
+.detail-photo-clip {
+  width: 100%; height: 100%; border-radius: 50%; overflow: hidden;
+  border: 3px solid var(--border); background: var(--bg-elevated);
+}
+.detail-photo {
+  width: 100%; height: 100%; object-fit: cover; object-position: top center;
+  display: block; transform: scale(1.35); transform-origin: 50% 22%;
+}
+
+.mini-photo-wrap { position: relative; display: inline-block; width: 36px; height: 36px; flex-shrink: 0; }
+.mini-photo-clip { width: 100%; height: 100%; border-radius: 50%; overflow: hidden; background: var(--bg-elevated); }
+.mini-photo {
+  width: 100%; height: 100%; object-fit: cover; object-position: top center;
+  display: block; transform: scale(1.35); transform-origin: 50% 22%;
+}
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  background: var(--accent);
+  color: #0a0c12;
+  font-weight: 700;
+  font-size: 14px;
+  border: none;
+  border-radius: var(--radius-sm);
+  padding: 13px 22px;
+  cursor: pointer;
+  transition: background var(--transition), transform var(--transition);
+}
+
+.btn:hover { background: var(--accent-bright); transform: translateY(-1px); }
+.btn-secondary {
+  background: transparent;
+  color: var(--text-primary);
+  border: 1px solid var(--border);
+}
+.btn-secondary:hover { background: var(--surface-hover); }
+
+.hint { font-size: 13px; color: var(--text-tertiary); margin-top: -8px; }
+.hint a { color: var(--accent-bright); text-decoration: underline; text-underline-offset: 2px; }
+.hint a:hover { color: var(--accent); }
+
+.or-divider {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  max-width: 480px;
+  margin: 24px 0;
+  color: var(--text-tertiary);
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.or-divider::before, .or-divider::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--border);
+}
+
+input[type="file"] {
+  flex: 1;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 11px 14px;
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-family: inherit;
+}
+
+/* --- Tables ---------------------------------------------------------------*/
+
+table { width: 100%; border-collapse: collapse; font-size: 14px; }
+
+th {
+  text-align: left;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-tertiary);
+  font-weight: 600;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+td { padding: 12px; border-bottom: 1px solid var(--border-subtle); }
+tr:last-child td { border-bottom: none; }
+tr:hover td { background: var(--surface-hover); }
+
+td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+
+/* --- Tags ---------------------------------------------------------------*/
+
+.pos-tag {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 3px 8px;
+  border-radius: 6px;
+  letter-spacing: 0.02em;
+}
+
+.pos-GKP { background: rgba(251, 191, 36, 0.15); color: var(--pos-gkp); }
+.pos-DEF { background: rgba(96, 165, 250, 0.15); color: var(--pos-def); }
+.pos-MID { background: rgba(52, 211, 153, 0.15); color: var(--pos-mid); }
+.pos-FWD { background: rgba(251, 113, 133, 0.15); color: var(--pos-fwd); }
+
+.captain-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--gold);
+  color: #0a0c12;
+  font-size: 10px;
+  font-weight: 800;
+  margin-left: 6px;
+}
+
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 5px 12px;
+  border-radius: 999px;
+}
+
+.pill-positive { background: var(--positive-dim); color: var(--positive); }
+.pill-negative { background: var(--negative-dim); color: var(--negative); }
+.pill-neutral { background: var(--surface-hover); color: var(--text-secondary); }
+.pill-warn { background: rgba(251, 191, 36, 0.14); color: var(--gold); }
+
+/* --- AI Performance page ---------------------------------------------------*/
+
+.chip-status-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 12px;
+}
+
+.chip-status-card {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 14px 16px;
+}
+
+.chip-status-name { font-weight: 700; font-size: 14px; color: var(--text-primary); margin-bottom: 8px; }
+
+.gw-log-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.gw-log-row:last-child { border-bottom: none; }
+.gw-log-gw { flex: 0 0 52px; font-weight: 800; color: var(--text-tertiary); font-size: 13px; }
+.gw-log-body { flex: 1; min-width: 0; }
+.gw-log-note { font-size: 13px; color: var(--text-secondary); margin-top: 2px; }
+.gw-log-score { flex: 0 0 auto; text-align: right; }
+.gw-log-vs-avg { font-size: 11px; color: var(--text-tertiary); margin-top: 2px; white-space: nowrap; }
+
+/* --- Filters / chips ------------------------------------------------------*/
+
+.filter-row { display: flex; gap: 8px; margin-bottom: 20px; flex-wrap: wrap; }
+
+.chip {
+  padding: 8px 16px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all var(--transition);
+}
+
+.chip:hover { border-color: var(--accent); color: var(--text-primary); }
+.chip.active { background: var(--accent-dim); border-color: var(--accent); color: var(--accent-bright); }
+
+/* --- Section spacing ------------------------------------------------------*/
+
+.section { margin-top: 40px; }
+.section-header { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 16px; }
+
+/* --- Footer note ---------------------------------------------------------*/
+
+.meta-note {
+  font-size: 12px;
+  color: var(--text-tertiary);
+  margin-top: 48px;
+  padding-top: 20px;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.banner {
+  background: var(--accent-dim);
+  border: 1px solid rgba(139, 124, 246, 0.35);
+  border-radius: var(--radius-md);
+  padding: 14px 18px;
+  font-size: 13px;
+  color: var(--accent-bright);
+  margin-bottom: 24px;
+}
+
+.banner.warn {
+  background: var(--negative-dim);
+  border-color: rgba(251, 113, 133, 0.35);
+  color: var(--negative);
+}
+
+/* --- Pitch / formation view ------------------------------------------- */
+
+.pitch-wrap {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 18px;
+  box-shadow: var(--shadow-card);
+}
+
+.pitch {
+  position: relative;
+  background:
+    repeating-linear-gradient(
+      to bottom,
+      #16412a 0, #16412a 12.5%,
+      #123823 12.5%, #123823 25%
+    );
+  border: 1px solid rgba(255, 255, 255, 0.10);
+  border-radius: var(--radius-md);
+  padding: 26px 12px 18px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 30px;
+  min-height: 840px; /* 1.75x the original 480px */
+  overflow: hidden;
+}
+
+.pitch::before {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 120px;
+  height: 120px;
+  margin: -60px 0 0 -60px;
+  border: 2px solid rgba(255, 255, 255, 0.14);
+  border-radius: 50%;
+  pointer-events: none;
+}
+
+.pitch::after {
+  content: "";
+  position: absolute;
+  left: 6%;
+  right: 6%;
+  top: 50%;
+  border-top: 2px solid rgba(255, 255, 255, 0.14);
+  pointer-events: none;
+}
+
+.pitch-row {
+  display: flex;
+  justify-content: space-evenly;
+  align-items: flex-start;
+  gap: 6px;
+  position: relative;
+  z-index: 1;
+  flex-wrap: wrap;
+}
+
+.player-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 120px;
+  text-align: center;
+  cursor: pointer;
+  transition: transform var(--transition);
+}
+
+.player-card:hover { transform: translateY(-2px); }
+
+/* Two layers on purpose: `.player-photo-wrap` is the positioning context
+   for the badges below (captain/vice/team-crest) and must NOT clip, since
+   those badges intentionally sit partway outside the photo's circle.
+   `.photo-clip` is the actual fixed-size circular window -- `transform:
+   scale()` on an element enlarges its own painted box (border-radius and
+   all), it does NOT get cropped back down to the original box size, so
+   without a separate non-transformed clipping parent the zoomed-in photo
+   visually overflows into whatever sits below it (this was the name-tag
+   overlap bug). Clipping on `.photo-clip` instead keeps the zoom contained
+   regardless of the img's own transform. */
+.player-photo-wrap { position: relative; width: 80px; height: 80px; }
+
+.photo-clip {
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  overflow: hidden;
+  background: var(--bg-elevated);
+  border: 2px solid rgba(255, 255, 255, 0.35);
+}
+
+.player-photo {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: top center;
+  display: block;
+  /* FPL's headshot photo lags behind transfers -- a player can keep
+     showing their old club's kit for weeks after moving. Zooming in
+     toward the face crops out more of the shoulder/kit area than a
+     plain circular crop would; it doesn't eliminate the old kit (that
+     needs FPL to reshoot the photo), but combined with the team-badge
+     overlay below, the correct club is always still clear. */
+  transform: scale(1.35);
+  transform-origin: 50% 22%;
+}
+
+.player-card .captain-badge,
+.player-card .vice-badge {
+  position: absolute;
+  top: -2px;
+  right: -6px;
+  width: 26px;
+  height: 26px;
+  font-size: 13px;
+  border: 2px solid var(--bg);
+}
+
+.team-badge {
+  position: absolute;
+  bottom: -2px;
+  left: -6px;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: var(--bg);
+  border: 1.5px solid var(--bg);
+  object-fit: contain;
+  padding: 2px;
+}
+
+.vice-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  /* Same treatment as .captain-badge (gold circle, dark bold letter) so
+     the two read as a matched pair -- only the letter tells them apart,
+     same as the captain/vice-captain armband convention in the real app. */
+  background: var(--gold);
+  color: #0a0c12;
+  font-weight: 800;
+}
+
+.player-name-tag {
+  margin-top: 8px;
+  background: rgba(6, 10, 8, 0.82);
+  border-radius: 6px;
+  padding: 3px 8px;
+  font-size: 13px;
+  font-weight: 700;
+  color: #fff;
+  max-width: 112px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.player-xp-tag {
+  margin-top: 4px;
+  background: var(--positive);
+  color: #06231a;
+  font-size: 12px;
+  font-weight: 800;
+  padding: 3px 9px;
+  border-radius: 999px;
+}
+
+/* Per-gameweek xP breakdown on a squad card -- 4 small pills (one per
+   upcoming gameweek) instead of a single cumulative total, so "which of
+   my next 4 weeks is this player actually good in" is visible at a glance. */
+.player-gw-xp {
+  display: flex;
+  gap: 3px;
+  margin-top: 5px;
+}
+
+.player-gw-xp span {
+  background: var(--positive-dim);
+  color: var(--positive);
+  font-size: 10px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  padding: 2px 4px;
+  border-radius: 4px;
+  min-width: 21px;
+  text-align: center;
+}
+
+.bench-strip .player-gw-xp span {
+  background: var(--surface-hover);
+  color: var(--text-secondary);
+  font-size: 9px;
+  min-width: 18px;
+}
+
+.bench-strip {
+  display: flex;
+  gap: 20px;
+  overflow-x: auto;
+  padding: 4px 4px 6px;
+}
+
+.bench-strip .player-card { width: 100px; flex: none; }
+.bench-strip .player-photo-wrap { width: 64px; height: 64px; }
+.bench-strip .player-name-tag { background: transparent; color: var(--text-primary); padding: 0; max-width: 100px; }
+.bench-strip .player-xp-tag { background: var(--surface-hover); color: var(--text-secondary); }
+.bench-strip .team-badge { width: 20px; height: 20px; }
+
+.compare-tray {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+canvas { max-width: 100%; }
+
+/* --- Finder result rows ----------------------------------------------------*/
+
+.finder-form {
+  display: flex;
+  gap: 14px;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  margin-bottom: 28px;
+}
+
+.finder-field { display: flex; flex-direction: column; gap: 6px; }
+.finder-field label { font-size: 12px; color: var(--text-tertiary); text-transform: uppercase; letter-spacing: 0.04em; }
+.finder-field select, .finder-field input { min-width: 160px; }
+
+.finder-card {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 0;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.finder-card:last-child { border-bottom: none; }
+.finder-card-info { flex: 1; min-width: 0; }
+.finder-card-name { font-weight: 700; font-size: 15px; color: var(--text-primary); }
+.finder-card-meta { font-size: 12px; color: var(--text-tertiary); margin-top: 2px; }
+.finder-card-total { text-align: right; flex-shrink: 0; }
+
+/* --- Leaderboard rows (analytics page) ------------------------------------*/
+
+.lb-list { display: flex; flex-direction: column; }
+
+.lb-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.lb-row:last-child { border-bottom: none; }
+
+.lb-rank {
+  width: 22px;
+  flex-shrink: 0;
+  text-align: center;
+  font-size: 13px;
+  font-weight: 800;
+  color: var(--text-tertiary);
+}
+
+.lb-row-info { flex: 1; min-width: 0; }
+.lb-row-name { font-weight: 700; font-size: 14px; color: var(--text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.lb-row-meta { font-size: 12px; color: var(--text-tertiary); }
+
+.lb-row-stat {
+  font-weight: 800;
+  font-size: 15px;
+  color: var(--positive);
+  white-space: nowrap;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.lb-row-stat.negative { color: var(--negative); }
+.lb-row-stat-sub { font-size: 11px; color: var(--text-tertiary); font-weight: 500; text-align: right; }
+
+.position-leaderboards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 16px;
+}
+
+/* --- Fixture cards --------------------------------------------------------*/
+
+.fixture-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.fixture-card-head { display: flex; align-items: center; gap: 10px; }
+.fixture-badge { width: 30px; height: 30px; object-fit: contain; flex-shrink: 0; }
+
+.fixture-opponent { font-weight: 700; font-size: 15px; color: var(--text-primary); }
+.fixture-meta { font-size: 12px; color: var(--text-tertiary); }
+
+.fixture-difficulty {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 800;
+  padding: 3px 9px;
+  border-radius: 999px;
+  align-self: flex-start;
+}
+
+.fdiff-1, .fdiff-2 { background: var(--positive-dim); color: var(--positive); }
+.fdiff-3 { background: rgba(251, 191, 36, 0.15); color: var(--gold); }
+.fdiff-4, .fdiff-5 { background: var(--negative-dim); color: var(--negative); }
+
+.fixture-history {
+  border-top: 1px solid var(--border-subtle);
+  padding-top: 10px;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.fixture-history strong { color: var(--text-primary); }
+
+/* --- Percentile rank rows ------------------------------------------------*/
+
+.rank-row { margin-bottom: 18px; }
+.rank-row:last-child { margin-bottom: 0; }
+
+.rank-row-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  font-size: 13px;
+  margin-bottom: 6px;
+  gap: 10px;
+}
+
+.rank-row-label { color: var(--text-primary); font-weight: 600; }
+.rank-row-value { color: var(--text-tertiary); white-space: nowrap; font-variant-numeric: tabular-nums; }
+
+.rank-bar-track {
+  height: 8px;
+  border-radius: 999px;
+  background: var(--surface-hover);
+  overflow: hidden;
+}
+
+.rank-bar-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--accent), var(--positive));
+}
+
+/* --- Player search picker (compare page) --------------------------------*/
+
+.player-search { position: relative; flex: 1; min-width: 220px; }
+
+.player-search input[type="text"] { width: 100%; }
+
+.search-results {
+  display: none;
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  right: 0;
+  max-height: 280px;
+  overflow-y: auto;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-card);
+  z-index: 10;
+}
+
+.search-result-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 14px;
+  cursor: pointer;
+  font-size: 14px;
+  color: var(--text-primary);
+  transition: background var(--transition);
+}
+
+.search-result-item:hover { background: var(--surface-hover); }
+.search-result-meta { font-size: 12px; color: var(--text-tertiary); }
+.search-result-empty { color: var(--text-tertiary); cursor: default; }
+.search-result-empty:hover { background: transparent; }
+
+/* --- Correlation panels (analytics page) ---------------------------------
+   Compact diverging-bar rows for "what predicts X" findings that don't
+   warrant a full chart canvas -- a lighter-weight visual alongside the
+   heavier Chart.js sections, per the "good mix" request. Each row's fill
+   grows from a center zero-line, left for negative r, right for positive. */
+
+.corr-panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+
+.corr-sample-size {
+  font-size: 12px;
+  color: var(--text-tertiary);
+}
+
+.corr-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 0;
+}
+
+.corr-label {
+  flex: 0 0 42%;
+  font-size: 13px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.corr-track {
+  position: relative;
+  flex: 1;
+  height: 8px;
+  background: var(--border-subtle);
+  border-radius: 4px;
+}
+
+.corr-track::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: -3px;
+  bottom: -3px;
+  width: 1px;
+  background: var(--border);
+}
+
+.corr-fill {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  border-radius: 4px;
+}
+
+.corr-fill.positive { background: var(--positive); }
+.corr-fill.negative { background: var(--negative); }
+
+.corr-value {
+  flex: 0 0 46px;
+  text-align: right;
+  font-size: 13px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.corr-value.positive { color: var(--positive); }
+.corr-value.negative { color: var(--negative); }
+
+.corr-empty {
+  font-size: 13px;
+  color: var(--text-tertiary);
+}
+
+/* --- Headline-finding callout (analytics page) --------------------------*/
+
+.finding-callout {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  padding: 20px 24px;
+  background: linear-gradient(135deg, var(--accent-dim), var(--positive-dim));
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  margin-bottom: 18px;
+  flex-wrap: wrap;
+}
+
+.finding-callout-r {
+  font-size: 36px;
+  font-weight: 800;
+  color: var(--accent-bright);
+  line-height: 1;
+  flex: 0 0 auto;
+}
+
+.finding-callout-body { flex: 1; min-width: 220px; }
+.finding-callout-body h3 { margin: 0 0 4px; font-size: 16px; }
+.finding-callout-body p { margin: 0; font-size: 13px; color: var(--text-secondary); }
+
+/* --- Click-to-explore affordance -----------------------------------------
+   A lot of this site's most useful views (player cards, correlation bars)
+   are hidden behind a click with no visual cue that they're interactive --
+   plain <a> tags/canvas elements don't look clickable on their own. This is
+   a small, consistently-placed hint so people actually discover them. */
+
+.click-hint {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--accent-bright);
+  background: var(--accent-dim);
+  border: 1px solid transparent;
+  border-radius: 999px;
+  padding: 7px 14px;
+  margin: 4px 0 18px;
+}
+
+/* --- Stat-leaders modal (analytics page) ---------------------------------*/
+
+.modal-overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(6, 7, 11, 0.6);
+  backdrop-filter: blur(2px);
+  z-index: 100;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+
+.modal-overlay.open { display: flex; }
+
+.modal-box {
+  width: 100%;
+  max-width: 480px;
+  max-height: 80vh;
+  overflow-y: auto;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-card);
+  padding: 24px;
+}
+
+.modal-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.modal-header h3 {
+  margin: 0 0 4px;
+  font-size: 18px;
+  text-transform: none;
+  letter-spacing: normal;
+  color: var(--text-primary);
+}
+
+.modal-subtitle { font-size: 13px; color: var(--text-tertiary); margin: 0; }
+
+.modal-close {
+  flex-shrink: 0;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  background: var(--bg-elevated);
+  color: var(--text-secondary);
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.modal-close:hover { background: var(--surface-hover); color: var(--text-primary); }
+
+/* --- Multi-player search / compare picker ---------------------------------*/
+
+.player-chip-tray {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 14px 0 24px;
+  min-height: 0;
+}
+
+.player-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 5px 8px 5px 12px;
+  font-size: 13px;
+  color: var(--text-primary);
+}
+
+.player-chip-remove {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  border: none;
+  background: var(--border-subtle);
+  color: var(--text-secondary);
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.player-chip-remove:hover { background: var(--negative-dim); color: var(--negative); }
+
+/* --- Horizontally-scrollable table wrapper --------------------------------
+   Used for the one remaining <table> on the site (home page top picks) --
+   rather than squeeze columns unreadably on a phone, let it scroll. */
+.table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+
+/* --- Overview page ---------------------------------------------------------
+   One card per page on the site, each with a small themed illustration
+   that's literally a miniature of that page's own signature visual (a
+   tiny pitch for the squad view, a tiny radar for compare, etc.) rather
+   than a generic stock icon -- ties the overview visually back to what
+   it's describing. */
+
+.overview-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 20px;
+}
+
+.overview-card {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.overview-visual {
+  height: 100px;
+  border-radius: var(--radius-md);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+
+.overview-visual.tone-accent { background: var(--accent-dim); }
+.overview-visual.tone-positive { background: var(--positive-dim); }
+.overview-visual.tone-gold { background: rgba(251, 191, 36, 0.12); }
+.overview-visual.tone-def { background: rgba(96, 165, 250, 0.12); }
+.overview-visual.tone-fwd { background: var(--negative-dim); }
+.overview-visual.tone-gradient {
+  background: linear-gradient(135deg, var(--accent-dim), var(--positive-dim));
+}
+.overview-visual.tone-gradient-gold {
+  background: linear-gradient(135deg, rgba(251, 191, 36, 0.14), var(--accent-dim));
+}
+
+.overview-card h3 {
+  margin: 0;
+  font-size: 17px;
+  text-transform: none;
+  letter-spacing: normal;
+  color: var(--text-primary);
+  font-weight: 700;
+}
+
+.overview-bullets {
+  margin: 0;
+  padding-left: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.overview-bullets li {
+  font-size: 13px;
+  color: var(--text-secondary);
+  line-height: 1.45;
+}
+
+.overview-card-link {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--accent-bright);
+  margin-top: auto;
+}
+
+.overview-card-link:hover { color: var(--accent); }
+
+/* ===========================================================================
+   Mobile (<=640px). The nav previously just hid every link (including the
+   theme toggle, which lived inside the same wrapper) with nothing to
+   replace them -- real functionality loss on a phone. It's now a proper
+   collapsible menu: the hamburger button is hidden on desktop (see
+   .nav-toggle-btn above) and shown here, and the theme toggle stays
+   visible at every width since it moved out of the collapsible wrapper.
+   ========================================================================= */
+@media (max-width: 640px) {
+  h1 { font-size: 28px; }
+  h2 { font-size: 20px; }
+  .lede { font-size: 16px; }
+  .page { padding: 0 16px 60px; }
+  .hero { padding: 40px 0 32px; }
+
+  .navbar-inner { padding: 14px 16px; }
+
+  .nav-toggle-btn { display: flex; }
+
+  .nav-links {
+    display: none;
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    flex-direction: column;
+    gap: 2px;
+    padding: 10px 16px 18px;
+    background: var(--nav-bg);
+    backdrop-filter: blur(12px);
+    border-bottom: 1px solid var(--border-subtle);
+    box-shadow: var(--shadow-card);
+  }
+
+  .nav-links.open { display: flex; }
+  .nav-links a { padding: 12px 8px; border-radius: 8px; font-size: 15px; }
+  .nav-links a:hover { background: var(--surface-hover); }
+
+  .lookup-form { flex-direction: column; }
+  .compare-picker { flex-direction: column; }
+  .finder-form { flex-direction: column; align-items: stretch; }
+  .finder-field select, .finder-field input { min-width: 0; width: 100%; }
+
+  .finding-callout { flex-direction: column; align-items: flex-start; }
+  .finding-callout-r { font-size: 30px; }
+
+  .modal-box { padding: 18px; max-height: 85vh; }
+  .modal-overlay { padding: 12px; }
+
+  .pitch { padding: 18px 6px 12px; min-height: 0; }
+  .pitch-row { gap: 4px; }
+  .player-card { width: 92px; }
+  .player-card .player-photo-wrap { width: 64px; height: 64px; }
+  .player-name-tag { max-width: 88px; font-size: 11px; }
+  .player-gw-xp span { min-width: 18px; font-size: 9px; }
+
+  .corr-label { flex-basis: 34%; font-size: 12px; }
+  .lb-row-meta { font-size: 12px; }
+}

@@ -1,0 +1,319 @@
+{% extends "base.html" %}
+{% block title %}AI Performance -- FPL Squad Advisor{% end %}
+
+{% block content %}
+{% if data is None %}
+  <div class="hero">
+    <h1>AI Performance isn't available right now</h1>
+    <p class="lede">{{ error }}</p>
+  </div>
+{% else %}
+
+<div class="hero" style="padding-top:40px; padding-bottom:16px;">
+  <div class="eyebrow">Gameweek {{ data['current_gw'] }} of 38</div>
+  <h1>The AI's own season.</h1>
+  <p class="lede">
+    A fully autonomous manager built on this site's own model -- it picked its own opening squad,
+    and from gameweek 2 onward every transfer and chip has been the model deciding alone, locked in
+    for real and never re-decided in hindsight. This is what "trust the model" actually looks like
+    played out over a season.
+  </p>
+</div>
+
+{% if error %}
+<div class="banner warn">{{ error }}</div>
+{% end %}
+
+{% if data['season_complete'] %}
+<div class="banner">The 2026/27 season is complete.</div>
+{% end %}
+
+<div class="card-grid">
+  <div class="stat-card">
+    <div class="stat-value positive">{{ data['total_points'] }}</div>
+    <div class="stat-label">Total points so far</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-value">&pound;{{ '%.1f' % data['squad_value'] }}m</div>
+    <div class="stat-label">Squad value</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-value">&pound;{{ '%.1f' % data['bank'] }}m</div>
+    <div class="stat-label">In the bank</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-value">{{ data['free_transfers'] }}</div>
+    <div class="stat-label">Free transfer{% if data['free_transfers'] != 1 %}s{% end %} banked</div>
+  </div>
+  {% if data['upcoming_projected_points'] is not None %}
+  <div class="stat-card">
+    <div class="stat-value" style="color: var(--accent-bright);">{{ '%.1f' % data['upcoming_projected_points'] }}</div>
+    <div class="stat-label">Projected xP, GW{{ data['current_gw'] }}{% if data['gw_finished'] %} (played){% end %}</div>
+  </div>
+  {% end %}
+  {% if data['accuracy'] %}
+  <div class="stat-card stat-card-clickable" onclick="openAccuracyHistory()" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();openAccuracyHistory();}" role="button" tabindex="0" title="See predicted vs. actual for every finished gameweek">
+    <div class="stat-value {% if data['accuracy']['delta'] >= 0 %}positive{% else %}negative{% end %}">{{ '%+.1f' % data['accuracy']['delta'] }}</div>
+    <div class="stat-label">xP accuracy, GW{{ data['accuracy']['gameweek'] }}</div>
+    <div class="stat-card-sub">Predicted {{ '%.1f' % data['accuracy']['predicted'] }} &rarr; actual {{ data['accuracy']['actual'] }} &middot; tap for history</div>
+  </div>
+  {% end %}
+</div>
+
+{% if data['accuracy'] %}
+<div class="modal-overlay" id="accuracyHistoryModal">
+  <div class="modal-box">
+    <div class="modal-header">
+      <div>
+        <h3>Predicted vs. actual, gameweek by gameweek</h3>
+        <p class="modal-subtitle">The AI's own single-gameweek projection at decision time, before that week was played, against the real points it scored.</p>
+      </div>
+      <button class="modal-close" type="button" onclick="closeAccuracyHistory()">&times;</button>
+    </div>
+    <div class="lb-list" id="accuracyHistoryList"></div>
+  </div>
+</div>
+{% end %}
+
+<div class="section">
+  <div class="section-header">
+    <h2>This gameweek's plan</h2>
+  </div>
+  <div class="finding-callout">
+    <div class="finding-callout-body">
+      <h3>
+        GW{{ data['current_gw'] }}
+        {% if data['current_chip'] %}
+        <span class="pill pill-positive" style="margin-left:8px;">{{ data['chip_labels'][data['current_chip']] }} played</span>
+        {% end %}
+        {% if data['gw_finished'] %}
+        <span class="pill pill-neutral" style="margin-left:8px;">Finished -- awaiting next refresh</span>
+        {% else %}
+        <span class="pill pill-neutral" style="margin-left:8px;">Deadline {{ data['deadline'] or 'TBC' }}</span>
+        {% end %}
+      </h3>
+      <p>{{ data['current_note'] }}</p>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <h2>Chip status, this half of the season</h2>
+  <p>Deadline for this half: gameweek {{ data['chip_status']['deadline_gameweek'] }}
+    ({{ data['chip_status']['gameweeks_remaining'] }} gameweek{% if data['chip_status']['gameweeks_remaining'] != 1 %}s{% end %} away).
+    Unused chips are lost at that deadline, not carried over.</p>
+  <div class="chip-status-grid">
+    {% for name in ['wildcard', 'free_hit', 'bench_boost', 'triple_captain'] %}
+    {% set c = data['chip_status']['chips'][name] %}
+    <div class="chip-status-card">
+      <div class="chip-status-name">{{ data['chip_labels'][name] }}</div>
+      {% if c['used'] %}
+      <span class="pill pill-neutral">Used</span>
+      {% elif c['urgency'] == 'urgent' %}
+      <span class="pill pill-negative">Urgent</span>
+      {% elif c['urgency'] == 'plan_soon' %}
+      <span class="pill pill-warn">Plan soon</span>
+      {% else %}
+      <span class="pill pill-neutral">Available</span>
+      {% end %}
+    </div>
+    {% end %}
+  </div>
+</div>
+
+<div class="section">
+  <h2>Current squad</h2>
+  <div class="click-hint">&#128070; Click any player for their full stats, fixtures, and price-range alternatives</div>
+  <div class="pitch-wrap">
+    <div class="pitch">
+      {% for row in data['pitch_rows'] %}
+      <div class="pitch-row">
+        {% for p in row['players'] %}
+        <a class="player-card" href="/player/{{ p['id'] }}" title="View {{ p['web_name'] }}'s stats">
+          <div class="player-photo-wrap">
+            <div class="photo-clip">
+              <img class="player-photo" src="{{ p['photo_url'] }}" alt="{{ p['web_name'] }}"
+                   onerror="this.onerror=null; this.style.transform='none'; this.src='data:image/svg+xml;utf8,<svg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 80 80%27><rect width=%2780%27 height=%2780%27 rx=%2740%27 fill=%27%23262c3d%27/><text x=%2740%27 y=%2750%27 font-size=%2732%27 text-anchor=%27middle%27 fill=%27%239aa3b8%27 font-family=%27sans-serif%27>{{ p['web_name'][0] }}</text></svg>';">
+            </div>
+            {% if p.get('badge_url') %}
+            <img class="team-badge" src="{{ p['badge_url'] }}" alt="{{ p['team_name'] }}" title="{{ p['team_name'] }}"
+                 onerror="this.style.display='none';">
+            {% end %}
+            {% if p['id'] == data['captain_id'] %}<span class="captain-badge" title="Captain">C</span>{% end %}
+            {% if p['id'] == data['vice_captain_id'] %}<span class="vice-badge" title="Vice-captain">V</span>{% end %}
+          </div>
+          <div class="player-name-tag">{{ p['web_name'] }}</div>
+          <div class="player-gw-xp" title="Projected points, next 4 gameweeks">
+            <span>{{ '%.1f' % p.get('xp_gw1', 0) }}</span>
+            <span>{{ '%.1f' % p.get('xp_gw2', 0) }}</span>
+            <span>{{ '%.1f' % p.get('xp_gw3', 0) }}</span>
+            <span>{{ '%.1f' % p.get('xp_gw4', 0) }}</span>
+          </div>
+        </a>
+        {% end %}
+      </div>
+      {% end %}
+    </div>
+
+    <div class="section" style="margin-top:20px;">
+      <h3 style="margin-bottom:10px;">Bench</h3>
+      <div class="bench-strip">
+        {% for p in data['bench'] %}
+        <a class="player-card" href="/player/{{ p['id'] }}" title="View {{ p['web_name'] }}'s stats">
+          <div class="player-photo-wrap">
+            <div class="photo-clip">
+              <img class="player-photo" src="{{ p['photo_url'] }}" alt="{{ p['web_name'] }}"
+                   onerror="this.onerror=null; this.style.transform='none'; this.src='data:image/svg+xml;utf8,<svg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 64 64%27><rect width=%2764%27 height=%2764%27 rx=%2732%27 fill=%27%23262c3d%27/><text x=%2732%27 y=%2741%27 font-size=%2726%27 text-anchor=%27middle%27 fill=%27%239aa3b8%27 font-family=%27sans-serif%27>{{ p['web_name'][0] }}</text></svg>';">
+            </div>
+            {% if p.get('badge_url') %}
+            <img class="team-badge" src="{{ p['badge_url'] }}" alt="{{ p['team_name'] }}" title="{{ p['team_name'] }}"
+                 onerror="this.style.display='none';">
+            {% end %}
+          </div>
+          <div class="player-name-tag">{{ p['web_name'] }}</div>
+          <div class="player-gw-xp" title="Projected points, next 4 gameweeks">
+            <span>{{ '%.1f' % p.get('xp_gw1', 0) }}</span>
+            <span>{{ '%.1f' % p.get('xp_gw2', 0) }}</span>
+            <span>{{ '%.1f' % p.get('xp_gw3', 0) }}</span>
+            <span>{{ '%.1f' % p.get('xp_gw4', 0) }}</span>
+          </div>
+        </a>
+        {% end %}
+      </div>
+    </div>
+  </div>
+</div>
+
+{% if data['gw_log'] %}
+<div class="section">
+  <h2>Season so far</h2>
+  <p>Cumulative points, gameweek by gameweek -- the dashed line is the average FPL manager's score that week, straight from FPL's own numbers.</p>
+  <div class="card"><canvas id="seasonChart" height="110"></canvas></div>
+</div>
+
+<div class="section">
+  <h2>Gameweek log</h2>
+  <div class="card">
+    <div class="lb-list">
+      {% for g in data['gw_log'] %}
+      <div class="gw-log-row">
+        <div class="gw-log-gw">GW{{ g['gameweek'] }}</div>
+        <div class="gw-log-body">
+          {% if g['chip_played'] %}
+          <span class="pill pill-positive" style="margin-bottom:4px;">{{ data['chip_labels'][g['chip_played']] }}</span>
+          {% end %}
+          <div class="gw-log-note">{{ g['note'] }}</div>
+        </div>
+        <div class="gw-log-score">
+          <div class="stat-value {% if g['average_entry_score'] and g['points'] >= g['average_entry_score'] %}positive{% elif g['average_entry_score'] %}negative{% end %}" style="font-size:20px;">{{ g['points'] }}</div>
+          {% if g['average_entry_score'] is not None %}
+          <div class="gw-log-vs-avg">avg {{ g['average_entry_score'] }} &middot; cum {{ g['cumulative'] }}</div>
+          {% else %}
+          <div class="gw-log-vs-avg">cum {{ g['cumulative'] }}</div>
+          {% end %}
+        </div>
+      </div>
+      {% end %}
+    </div>
+  </div>
+</div>
+{% else %}
+<div class="section">
+  <h2>Season so far</h2>
+  <div class="card">
+    <p style="margin:0;">No gameweeks have finished yet -- {{ data['season_start_note'] }} Check back after the GW{{ data['current_gw'] }} deadline and matches have been played.</p>
+  </div>
+</div>
+{% end %}
+
+{% end %}
+{% end %}
+
+{% block scripts %}
+{% if data is not None and data['accuracy'] %}
+<script>
+{% import json as _json %}
+const ACCURACY_LOG = {% raw _json.dumps([g for g in data['gw_log'] if g['projected_points'] is not None]) %};
+
+function openAccuracyHistory() {
+  const list = document.getElementById('accuracyHistoryList');
+  list.innerHTML = ACCURACY_LOG.map(g => {
+    const cls = g.delta >= 0 ? 'positive' : 'negative';
+    const sign = g.delta >= 0 ? '+' : '';
+    return (
+      '<div class="gw-log-row">' +
+        '<div class="gw-log-gw">GW' + g.gameweek + '</div>' +
+        '<div class="gw-log-body">' +
+          '<div class="gw-log-note">Predicted ' + g.projected_points.toFixed(1) + ' &rarr; actual ' + g.points + '</div>' +
+        '</div>' +
+        '<div class="gw-log-score">' +
+          '<div class="stat-value ' + cls + '" style="font-size:20px;">' + sign + g.delta.toFixed(1) + '</div>' +
+          '<div class="gw-log-vs-avg">vs. prediction</div>' +
+        '</div>' +
+      '</div>'
+    );
+  }).join('') || '<p style="margin:0;">No gameweeks finished yet.</p>';
+  document.getElementById('accuracyHistoryModal').classList.add('open');
+}
+
+function closeAccuracyHistory() {
+  document.getElementById('accuracyHistoryModal').classList.remove('open');
+}
+
+document.getElementById('accuracyHistoryModal').addEventListener('click', (e) => {
+  if (e.target.id === 'accuracyHistoryModal') closeAccuracyHistory();
+});
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') closeAccuracyHistory();
+});
+</script>
+{% end %}
+{% if data is not None and data['gw_log'] %}
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
+<script>
+{% import json as _json %}
+const GW_LOG = {% raw _json.dumps(list(reversed(data['gw_log']))) %};
+
+let avgCumulative = 0;
+const AI_CUM = GW_LOG.map(g => g.cumulative);
+const AVG_CUM = GW_LOG.map(g => {
+  avgCumulative += (g.average_entry_score || 0);
+  return avgCumulative;
+});
+const LABELS = GW_LOG.map(g => 'GW' + g.gameweek);
+
+const ctx = document.getElementById('seasonChart').getContext('2d');
+const grad = ctx.createLinearGradient(0, 0, 0, 220);
+grad.addColorStop(0, 'rgba(139, 124, 246, 0.35)');
+grad.addColorStop(1, 'rgba(139, 124, 246, 0.02)');
+
+new Chart(ctx, {
+  type: 'line',
+  data: {
+    labels: LABELS,
+    datasets: [
+      {
+        label: 'AI manager (cumulative)',
+        data: AI_CUM,
+        borderColor: '#8b7cf6', backgroundColor: grad, fill: true, tension: 0.3,
+        borderWidth: 2, pointBackgroundColor: '#8b7cf6', pointRadius: 4,
+      },
+      {
+        label: 'Average FPL manager (cumulative)',
+        data: AVG_CUM,
+        borderColor: cssVar('--text-tertiary'), backgroundColor: 'transparent',
+        borderWidth: 2, borderDash: [5, 5], pointRadius: 0, tension: 0.3,
+      },
+    ],
+  },
+  options: {
+    plugins: { legend: { labels: { color: cssVar('--text-secondary'), font: { family: 'Inter' } } } },
+    scales: {
+      x: { ticks: { color: cssVar('--text-tertiary') }, grid: { color: cssVar('--border-subtle') } },
+      y: { ticks: { color: cssVar('--text-tertiary') }, grid: { color: cssVar('--border-subtle') }, beginAtZero: true },
+    },
+  },
+});
+</script>
+{% end %}
+{% end %}

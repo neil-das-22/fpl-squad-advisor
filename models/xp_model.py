@@ -173,6 +173,23 @@ NEVER_APPEARED_MATCHES_THRESHOLD = 3
 # floor already used elsewhere for "essentially not going to play".
 NEVER_APPEARED_START_PROBABILITY = MIN_START_PROBABILITY
 
+# Same constant, second name: per Neil -- "once the season starts and there
+# is enough of a sample size (3-4 gameweeks) I want the model to exclusively
+# use data from the current season." Deliberately reuses
+# NEVER_APPEARED_MATCHES_THRESHOLD rather than introducing a second number
+# that could drift out of sync -- both are really the same question ("has
+# enough of this season happened yet to trust it over last season's data"),
+# just applied in two places: start probability (already gated this way
+# from day one of this constant existing) and, as of this change, the
+# attacking-rate (xG/xA) and DefCon prior-season fallbacks in calculate_xp(),
+# which previously had NO gameweek cutoff at all -- a player with zero
+# current-season minutes would keep leaning on last season's xG/xA/DefCon
+# rate indefinitely, no matter how far into the season it got. Past this
+# threshold, a zero-minute player falls through to the flat POSITIONAL
+# prior instead (same as any player with no prior-season history at all),
+# not his own increasingly-stale prior-season number.
+CURRENT_SEASON_SAMPLE_THRESHOLD = NEVER_APPEARED_MATCHES_THRESHOLD
+
 # --- Prior-season fallback (GW1, no current-season data) -------------------
 # Denominator for turning last season's `starts` into a start RATE. A full
 # Premier League season is 38 matches. See the KNOWN LIMITATION note in the
@@ -831,6 +848,13 @@ def calculate_xp(player_row: Any,
 
     difficulty = _get(fixture_row, "team_h_difficulty" if is_home else "team_a_difficulty", 3)
 
+    # Read once, reused by the start-probability call below AND by the
+    # attacking-rate/DefCon prior-season gates further down -- all three are
+    # really the same question ("how much of this season has happened"),
+    # so they share one read of the same override rather than each
+    # independently pulling it out of `overrides`.
+    matches_played_val = overrides.get("matches_played")
+
     is_promoted = bool(_get(player_row, "is_promoted", False)) or bool(
         _get(own_team_row, "is_promoted", False))
     if is_promoted:
@@ -846,7 +870,7 @@ def calculate_xp(player_row: Any,
         availability = 1.0
     else:
         p_start, minute_flags = estimate_start_probability(
-            player_row, matches_played=overrides.get("matches_played"))
+            player_row, matches_played=matches_played_val)
         flags.extend(minute_flags)
 
     mins = minutes_distribution(p_start, availability)
@@ -884,13 +908,28 @@ def calculate_xp(player_row: Any,
     # shrinkage below just returns the flat positional prior and every forward
     # in the game looks identical -- which is precisely the GW1 failure mode
     # this closes).
+    #
+    # GATED ON matches_played (as of this change, previously it wasn't): a
+    # player who still has zero minutes once CURRENT_SEASON_SAMPLE_THRESHOLD
+    # gameweeks have passed is the same "known not to play" population
+    # start-probability already treats specially (NEVER_APPEARED_*) -- his
+    # xG/xA rate should stop being read off an increasingly stale prior
+    # season and fall through to the flat positional prior instead, same as
+    # any player with no prior-season history at all. Before this, a
+    # zero-minute player would keep quoting last season's rate indefinitely,
+    # no matter how far into the season it got.
     rate_xg, rate_xa, rate_minutes = xg_total, xa_total, minutes_played
+    prior_season_still_usable = (matches_played_val is None
+                                 or matches_played_val < CURRENT_SEASON_SAMPLE_THRESHOLD)
     if minutes_played <= 0:
         flags.append("no_minutes_history")
-        prev_attacking = prior_season_attacking_inputs(player_row)
+        prev_attacking = (prior_season_attacking_inputs(player_row)
+                          if prior_season_still_usable else None)
         if prev_attacking is not None:
             rate_xg, rate_xa, rate_minutes = prev_attacking
             flags.append("xg_xa_from_prior_season")
+        elif not prior_season_still_usable:
+            flags.append("xg_xa_prior_season_expired")
 
     xg90 = shrunk_per90_rate(rate_xg, rate_minutes, xg_prior, prior_weight)
     xa90 = shrunk_per90_rate(rate_xa, rate_minutes, xa_prior, prior_weight)
@@ -946,8 +985,14 @@ def calculate_xp(player_row: Any,
             _get(player_row, "clearances_blocks_interceptions", None) is not None
             or _get(player_row, "tackles", None) is not None
         )
+        # Same matches_played gate as the xG/xA fallback above -- a
+        # zero-minute player's DefCon rate stops reading off last season
+        # once CURRENT_SEASON_SAMPLE_THRESHOLD gameweeks have passed with
+        # no current-season data to replace it (previously this had no
+        # gameweek cutoff at all).
         prev_defcon = (prior_season_defcon_rate_inputs(player_row, position)
-                       if not (has_defcon_data and minutes_played > 0) else None)
+                       if not (has_defcon_data and minutes_played > 0) and prior_season_still_usable
+                       else None)
         if has_defcon_data and minutes_played > 0:
             defcon_per90 = shrunk_per90_rate(
                 defcon_count, minutes_played, DEFCON_PER90_PRIOR[position], dc_prior_weight)
@@ -961,6 +1006,8 @@ def calculate_xp(player_row: Any,
             defcon_per90 = DEFCON_PER90_PRIOR[position]
             if threshold is not None:
                 flags.append("defcon_prior")
+                if not prior_season_still_usable:
+                    flags.append("defcon_prior_season_expired")
     defcon_per90 = _to_float(defcon_per90, 0.0)
 
     defcon_prob = 0.0

@@ -1,0 +1,95 @@
+{% extends "base.html" %}
+{% block title %}FPL Squad Advisor -- expected points, transfers & visuals{% end %}
+
+{% block content %}
+<div class="hero">
+  <div class="eyebrow">2026/27 season &middot; GW1-4 model</div>
+  <h1>Know your squad's real numbers,<br>not just the eye test.</h1>
+  <p class="lede">
+    Enter your FPL team ID to see your squad's expected points over the next four gameweeks,
+    exactly where your weak links are, and whether a transfer is actually worth the hit.
+  </p>
+  <p class="hint" style="margin-top:-10px; margin-bottom:24px;">
+    <a href="/">&larr; Back to overview</a>
+  </p>
+
+  <form class="lookup-form" action="/team-lookup" method="get" onsubmit="return goToTeam(event)">
+    <input type="text" id="team-id-input" name="id" placeholder="Your FPL Team ID, e.g. 1234567" inputmode="numeric" required>
+    <button class="btn" type="submit">Look up my team</button>
+  </form>
+  <p class="hint">
+    Find your team ID in the URL when you're logged into fantasy.premierleague.com &mdash;
+    it's the number after <code>/entry/</code>. No password needed, ever.
+    <a href="https://www.livefpl.com/blog/fpl-team-id" target="_blank" rel="noopener">Need help finding it? &rarr;</a>
+  </p>
+
+  <div class="or-divider"><span>or</span></div>
+
+  <form class="lookup-form" action="/team-photo" method="post" enctype="multipart/form-data">
+    <input type="file" name="photo" accept="image/*" required>
+    <button class="btn btn-secondary" type="submit">Import from photo</button>
+  </form>
+  <p class="hint">
+    A screenshot of your "My Team" pitch view works best. We read the player names off the
+    image and build your squad from what we recognize -- it can't always tell your exact bench
+    order or captain, so double-check the result.
+  </p>
+</div>
+
+<div class="section">
+  <div class="section-header">
+    <h2>Top expected-points picks right now</h2>
+    <a class="btn btn-secondary" href="/players">Search players &rarr;</a>
+  </div>
+  <div class="table-scroll">
+  <table>
+    <thead>
+      <tr>
+        <th>Player</th><th>Team</th><th>Pos</th>
+        <th class="num">Price</th><th class="num">xP (GW1-4)</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for p in top_picks %}
+      <tr>
+        <td><strong>{{ p['web_name'] }}</strong></td>
+        <td>{{ p['team_name'] }}</td>
+        <td><span class="pos-tag pos-{{ p['position'] }}">{{ p['position'] }}</span></td>
+        <td class="num">&pound;{{ '%.1f' % p['price_m'] }}m</td>
+        <td class="num" style="color: var(--positive); font-weight: 700;">{{ '%.1f' % p['xp'] }}</td>
+      </tr>
+      {% end %}
+    </tbody>
+  </table>
+  </div>
+</div>
+
+<div class="section card-grid">
+  <div class="stat-card">
+    <div class="eyebrow" style="margin-bottom:10px;">01</div>
+    <h3 style="text-transform:none; letter-spacing:0; color: var(--text-primary); font-size:15px;">Expected points, 4 weeks out</h3>
+    <p style="margin:0; font-size:13px;">Every player's projected points over a rolling window, not just next match &mdash; so you're not chasing a single good fixture.</p>
+  </div>
+  <div class="stat-card">
+    <div class="eyebrow" style="margin-bottom:10px;">02</div>
+    <h3 style="text-transform:none; letter-spacing:0; color: var(--text-primary); font-size:15px;">Transfers, with the hit costed in</h3>
+    <p style="margin:0; font-size:13px;">Recommendations only surface when the net gain, after any -4 hit, is actually positive.</p>
+  </div>
+  <div class="stat-card">
+    <div class="eyebrow" style="margin-bottom:10px;">03</div>
+    <h3 style="text-transform:none; letter-spacing:0; color: var(--text-primary); font-size:15px;">Player comparisons</h3>
+    <p style="margin:0; font-size:13px;">Put any players side by side on price, projected points, and underlying stats.</p>
+  </div>
+</div>
+{% end %}
+
+{% block scripts %}
+<script>
+function goToTeam(e) {
+  e.preventDefault();
+  const id = document.getElementById('team-id-input').value.trim();
+  if (id) window.location.href = '/team/' + encodeURIComponent(id);
+  return false;
+}
+</script>
+{% end %}

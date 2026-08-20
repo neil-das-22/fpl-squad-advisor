@@ -1,0 +1,359 @@
+{% extends "base.html" %}
+{% block title %}Players -- FPL Squad Advisor{% end %}
+
+{% block content %}
+<div class="hero" style="padding-top:40px; padding-bottom:16px;">
+  <div class="eyebrow">Search</div>
+  <h1>Find a player</h1>
+  <p class="lede">Search by name for a full profile -- or add up to four players in the same position to compare them side by side.</p>
+</div>
+
+<div class="player-search" id="search-box" style="max-width:480px;">
+  <input type="text" id="player-input" placeholder="Search for a player..." autocomplete="off">
+  <div class="search-results" id="search-results"></div>
+</div>
+<p class="hint" id="position-hint" style="display:none; margin-top:8px;"></p>
+
+<div class="player-chip-tray" id="chip-tray"></div>
+
+<div id="empty-state" class="card"><p style="margin:0;">Search for a player above to see their full profile, or add a second (same position) to compare them.</p></div>
+
+<div id="single-view" style="display:none;"></div>
+
+<div id="compare-view" style="display:none;">
+  <div class="card-grid" id="compare-headers" style="margin-bottom:24px;"></div>
+
+  <div class="section">
+    <h2>Percentile profile, head to head</h2>
+    <p>Each player's standing against the rest of their position -- 100 is best in position, the dashed ring is the 50th percentile.</p>
+    <div class="card"><canvas id="radarChart" height="280"></canvas></div>
+  </div>
+
+  <div class="section">
+    <h2>Projected points, GW1-4</h2>
+    <div class="card"><canvas id="xpChart" height="110"></canvas></div>
+  </div>
+
+  <div class="section">
+    <h2>Attacking output, per 90 minutes</h2>
+    <div class="card"><canvas id="attackChart" height="110"></canvas></div>
+  </div>
+
+  <div class="section" id="def-section">
+    <h2>Defensive output, per 90 minutes</h2>
+    <div class="card"><canvas id="defChart" height="110"></canvas></div>
+  </div>
+
+  <div class="section">
+    <h2>Value &amp; ownership</h2>
+    <div class="card"><canvas id="valueChart" height="110"></canvas></div>
+  </div>
+</div>
+{% end %}
+
+{% block scripts %}
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
+<script>
+{% import json as _json %}
+const ALL_PLAYERS = {% raw _json.dumps(players) %};
+const MAX_PLAYERS = 4;
+const PALETTE = ['#8b7cf6', '#34d399', '#fb7185', '#60a5fa'];
+
+let selected = [];  // up to MAX_PLAYERS player stubs from ALL_PLAYERS
+let charts = {};
+let detailCache = {};
+
+function num(v) { return (typeof v === 'number') ? v : 0; }
+
+// Accents make name search fail in an unhelpful way (typing "joao" won't
+// find "João" otherwise) -- normalize both the query and every candidate
+// name to their unaccented form before comparing.
+function stripAccents(str) {
+  return (str || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+}
+
+function fetchPlayer(id) {
+  if (detailCache[id]) return Promise.resolve(detailCache[id]);
+  return fetch('/api/player/' + id + '.json')
+    .then(res => res.json())
+    .then(data => { detailCache[id] = data; return data; });
+}
+
+// --- search ---------------------------------------------------------
+
+const input = document.getElementById('player-input');
+const results = document.getElementById('search-results');
+
+function lockPosition() { return selected.length ? selected[0].position : null; }
+
+function showResults(query) {
+  if (selected.length >= MAX_PLAYERS) {
+    results.innerHTML = '<div class="search-result-item search-result-empty">Remove a player to add another (max ' + MAX_PLAYERS + ')</div>';
+    results.style.display = 'block';
+    return;
+  }
+  const lockPos = lockPosition();
+  const q = stripAccents(query.trim());
+  const selectedIds = new Set(selected.map(p => p.id));
+  let matches = ALL_PLAYERS.filter(p => !selectedIds.has(p.id) && (!lockPos || p.position === lockPos));
+  if (q) matches = matches.filter(p => stripAccents(p.web_name).includes(q));
+  matches = matches.slice(0, 8);
+
+  if (matches.length === 0) {
+    results.innerHTML = '<div class="search-result-item search-result-empty">' +
+      (lockPos ? 'No ' + lockPos + 's match' : 'No players match') + '</div>';
+  } else {
+    results.innerHTML = matches.map(p =>
+      '<div class="search-result-item" data-id="' + p.id + '">' +
+        '<span>' + p.web_name + '</span>' +
+        '<span class="search-result-meta">' + p.team_name + ' &middot; ' + p.position + '</span>' +
+      '</div>'
+    ).join('');
+  }
+  results.style.display = 'block';
+}
+
+input.addEventListener('input', () => showResults(input.value));
+input.addEventListener('focus', () => showResults(input.value));
+
+results.addEventListener('mousedown', (e) => {
+  const item = e.target.closest('.search-result-item[data-id]');
+  if (!item) return;
+  const id = parseInt(item.dataset.id, 10);
+  const p = ALL_PLAYERS.find(pp => pp.id === id);
+  if (p && selected.length < MAX_PLAYERS && !selected.some(s => s.id === id)) {
+    selected.push(p);
+    input.value = '';
+    results.style.display = 'none';
+    render();
+  }
+});
+
+document.addEventListener('click', (e) => {
+  if (!document.getElementById('search-box').contains(e.target)) {
+    results.style.display = 'none';
+  }
+});
+
+function removePlayer(id) {
+  selected = selected.filter(p => p.id !== id);
+  render();
+}
+
+// --- top-level render -------------------------------------------------
+
+function render() {
+  renderChips();
+  renderPositionHint();
+
+  const emptyState = document.getElementById('empty-state');
+  const singleView = document.getElementById('single-view');
+  const compareView = document.getElementById('compare-view');
+
+  if (selected.length === 0) {
+    emptyState.style.display = 'block';
+    singleView.style.display = 'none';
+    compareView.style.display = 'none';
+  } else if (selected.length === 1) {
+    emptyState.style.display = 'none';
+    singleView.style.display = 'block';
+    compareView.style.display = 'none';
+    renderSingle(selected[0].id);
+  } else {
+    emptyState.style.display = 'none';
+    singleView.style.display = 'none';
+    compareView.style.display = 'block';
+    renderCompare(selected.map(p => p.id));
+  }
+}
+
+function renderChips() {
+  const tray = document.getElementById('chip-tray');
+  tray.innerHTML = selected.map(p =>
+    '<span class="player-chip">' + p.web_name + ' <span style="color:var(--text-tertiary);">(' + p.team_name + ')</span>' +
+      '<button class="player-chip-remove" type="button" onclick="removePlayer(' + p.id + ')" title="Remove">&times;</button>' +
+    '</span>'
+  ).join('');
+}
+
+function renderPositionHint() {
+  const hint = document.getElementById('position-hint');
+  const lockPos = lockPosition();
+  if (lockPos && selected.length < MAX_PLAYERS) {
+    hint.style.display = 'block';
+    hint.textContent = 'Search is filtered to ' + lockPos + 's so any additional pick can be compared fairly (up to ' + MAX_PLAYERS + ' total).';
+  } else {
+    hint.style.display = 'none';
+  }
+}
+
+// --- single-player view -------------------------------------------------
+// Deliberately mirrors the hero layout on /player/<id> (same photo/eyebrow
+// treatment) so this reads as "the same view you'd get clicking a player
+// on your team", with a direct link through to that exact page for the
+// full breakdown (fixtures, radar, rankings, alternatives, etc).
+
+function renderSingle(id) {
+  document.getElementById('single-view').innerHTML = '<p style="color:var(--text-tertiary);">Loading&hellip;</p>';
+  fetchPlayer(id).then(p => {
+    if (selected.length !== 1 || selected[0].id !== id) return;  // stale response, selection changed
+    document.getElementById('single-view').innerHTML =
+      '<div class="hero" style="padding:24px 0 20px; display:flex; align-items:center; gap:20px; flex-wrap:wrap;">' +
+        '<div class="detail-photo-wrap"><div class="detail-photo-clip">' +
+          '<img class="detail-photo" src="' + (p.photo_url || '') + '" alt="' + p.web_name + '" onerror="this.onerror=null; this.style.transform=\'none\';"></div></div>' +
+        '<div>' +
+          '<div class="eyebrow"><span class="pos-tag pos-' + p.position + '">' + p.position + '</span>&nbsp;' + p.team_name + '</div>' +
+          '<h1 style="margin-bottom:4px;">' + p.web_name + '</h1>' +
+          '<p class="lede" style="margin:0;">&pound;' + num(p.price_m).toFixed(1) + 'm</p>' +
+        '</div>' +
+      '</div>' +
+      '<div class="card-grid" style="margin-bottom:20px;">' +
+        '<div class="stat-card"><div class="stat-value positive">' + num(p.xp).toFixed(1) + '</div><div class="stat-label">Projected points, next 4 GWs</div></div>' +
+        '<div class="stat-card"><div class="stat-value">' + (p.total_points_prev_season != null ? p.total_points_prev_season : 0) + '</div><div class="stat-label">Points, last season (2025/26)</div></div>' +
+        '<div class="stat-card"><div class="stat-value">' + (p.form || '0.0') + '</div><div class="stat-label">Form</div></div>' +
+        '<div class="stat-card"><div class="stat-value">' + (p.selected_by_percent || '0') + '%</div><div class="stat-label">Selected by</div></div>' +
+      '</div>' +
+      '<a class="btn" href="/player/' + p.id + '">View full profile, fixtures &amp; stats &rarr;</a>';
+  });
+}
+
+// --- multi-player compare (2-4) ------------------------------------------
+
+function statCardHTML(p, color) {
+  const rankRow = p.ranks && p.ranks.total_points && p.ranks.total_points.percentile !== null
+    ? '<div style="font-size:12px; color:var(--text-tertiary); margin-top:4px;">' +
+        p.position + ' rank #' + p.ranks.total_points.rank + ' of ' + p.ranks.total_points.n + '</div>'
+    : '';
+  return '<div class="stat-card" style="border-top:3px solid ' + color + ';">' +
+    '<a href="/player/' + p.id + '" style="display:flex; align-items:center; gap:10px; margin-bottom:10px;">' +
+      '<div class="mini-photo-wrap"><div class="mini-photo-clip">' +
+        '<img class="mini-photo" src="' + (p.photo_url || '') + '" alt="' + p.web_name + '" onerror="this.style.display=\'none\'">' +
+      '</div></div>' +
+      '<div><div style="font-weight:700; color:var(--text-primary);">' + p.web_name + '</div>' +
+      '<div style="font-size:12px; color:var(--text-tertiary);">' + p.team_name + ' &middot; ' + p.position + '</div></div>' +
+    '</a>' +
+    '<div class="stat-value positive">' + num(p.xp).toFixed(1) + ' xP</div>' +
+    '<div class="stat-label">&pound;' + num(p.price_m).toFixed(1) + 'm &middot; ' + (p.total_points_prev_season != null ? p.total_points_prev_season : 0) + ' pts last season</div>' +
+    rankRow +
+  '</div>';
+}
+
+function destroyCharts() {
+  Object.values(charts).forEach(c => c && c.destroy());
+  charts = {};
+}
+
+function groupedBarChart(canvasId, labels, players) {
+  const ctx = document.getElementById(canvasId).getContext('2d');
+  return new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels: labels,
+      datasets: players.map((entry, i) => ({
+        label: entry.p.web_name, data: entry.data, backgroundColor: PALETTE[i % PALETTE.length], borderRadius: 6,
+      })),
+    },
+    options: {
+      plugins: { legend: { labels: { color: cssVar('--text-secondary'), font: { family: 'Inter' } } } },
+      scales: {
+        x: { ticks: { color: cssVar('--text-tertiary') }, grid: { color: cssVar('--border-subtle') } },
+        y: { ticks: { color: cssVar('--text-tertiary') }, grid: { color: cssVar('--border-subtle') }, beginAtZero: true },
+      },
+    },
+  });
+}
+
+function renderCompare(ids) {
+  document.getElementById('compare-headers').innerHTML = '';
+  Promise.all(ids.map(fetchPlayer)).then(players => {
+    if (selected.length !== ids.length || !ids.every((id, i) => selected[i].id === id)) return;  // stale
+
+    document.getElementById('compare-headers').innerHTML =
+      players.map((p, i) => statCardHTML(p, PALETTE[i % PALETTE.length])).join('');
+
+    destroyCharts();
+
+    // Radar: axes every selected player actually has a percentile for
+    // (normally identical, all same position, but stay defensive).
+    const axisKeys = Object.keys(players[0].ranks || {}).filter(k =>
+      players.every(p => p.ranks && p.ranks[k] && p.ranks[k].percentile !== null));
+    charts.radar = new Chart(document.getElementById('radarChart').getContext('2d'), {
+      type: 'radar',
+      data: {
+        labels: axisKeys.map(k => players[0].ranks[k].label),
+        datasets: [
+          {
+            label: 'League average', data: axisKeys.map(() => 50),
+            borderColor: cssVar('--text-tertiary'), backgroundColor: 'transparent',
+            borderWidth: 1, borderDash: [4, 4], pointRadius: 0,
+          },
+          ...players.map((p, i) => ({
+            label: p.web_name,
+            data: axisKeys.map(k => p.ranks[k].percentile),
+            borderColor: PALETTE[i % PALETTE.length],
+            backgroundColor: PALETTE[i % PALETTE.length] + '38',
+            borderWidth: 2, pointBackgroundColor: PALETTE[i % PALETTE.length], pointRadius: 3,
+          })),
+        ],
+      },
+      options: {
+        plugins: { legend: { labels: { color: cssVar('--text-secondary'), font: { family: 'Inter' } } } },
+        scales: {
+          r: {
+            angleLines: { color: cssVar('--border-subtle') },
+            grid: { color: cssVar('--border-subtle') },
+            pointLabels: { color: cssVar('--text-secondary'), font: { size: 11, family: 'Inter' } },
+            ticks: { color: cssVar('--text-tertiary'), backdropColor: 'transparent', stepSize: 25 },
+            suggestedMin: 0, suggestedMax: 100,
+          },
+        },
+      },
+    });
+
+    const xpCtx = document.getElementById('xpChart').getContext('2d');
+    charts.xp = new Chart(xpCtx, {
+      type: 'line',
+      data: {
+        labels: ['GW1', 'GW2', 'GW3', 'GW4'],
+        datasets: players.map((p, i) => {
+          const grad = xpCtx.createLinearGradient(0, 0, 0, 220);
+          const color = PALETTE[i % PALETTE.length];
+          grad.addColorStop(0, color + '59');
+          grad.addColorStop(1, color + '05');
+          return {
+            label: p.web_name,
+            data: [num(p.xp_gw1), num(p.xp_gw2), num(p.xp_gw3), num(p.xp_gw4)],
+            borderColor: color, backgroundColor: grad, fill: true, tension: 0.35,
+            borderWidth: 2, pointBackgroundColor: color, pointRadius: 4,
+          };
+        }),
+      },
+      options: {
+        plugins: { legend: { labels: { color: cssVar('--text-secondary'), font: { family: 'Inter' } } } },
+        scales: {
+          x: { ticks: { color: cssVar('--text-tertiary') }, grid: { color: cssVar('--border-subtle') } },
+          y: { ticks: { color: cssVar('--text-tertiary') }, grid: { color: cssVar('--border-subtle') }, beginAtZero: true },
+        },
+      },
+    });
+
+    charts.attack = groupedBarChart('attackChart', ['Goals', 'Assists', 'xG', 'xA'],
+      players.map(p => ({ p, data: [num(p.goals_p90), num(p.assists_p90), num(p.xg_p90), num(p.xa_p90)] })));
+
+    const defSection = document.getElementById('def-section');
+    if (players.some(p => p.position === 'DEF' || p.position === 'MID')) {
+      defSection.style.display = 'block';
+      charts.def = groupedBarChart('defChart', ['Tackles', 'CBI', 'Recoveries'],
+        players.map(p => ({ p, data: [num(p.tackles_p90), num(p.cbi_p90), num(p.recoveries_p90)] })));
+    } else {
+      defSection.style.display = 'none';
+    }
+
+    charts.value = groupedBarChart('valueChart', ['Price (£m)', 'Selected by (%)', 'Form'],
+      players.map(p => ({ p, data: [num(p.price_m), parseFloat(p.selected_by_percent) || 0, parseFloat(p.form) || 0] })));
+  });
+}
+
+render();
+</script>
+{% end %}

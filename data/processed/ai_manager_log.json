@@ -1,0 +1,57 @@
+{
+  "created_at": "2026-08-20T02:21:32.094385+00:00",
+  "chips_used": {
+    "first_half": [],
+    "second_half": []
+  },
+  "history": [
+    {
+      "gameweek": 1,
+      "squad_ids": [
+        57,
+        356,
+        200,
+        388,
+        155,
+        367,
+        368,
+        94,
+        411,
+        106,
+        165,
+        423,
+        431,
+        88,
+        497
+      ],
+      "starting_xi_ids": [
+        57,
+        356,
+        200,
+        388,
+        155,
+        367,
+        368,
+        94,
+        411,
+        106,
+        165
+      ],
+      "bench_order_ids": [
+        423,
+        431,
+        88,
+        497
+      ],
+      "captain_id": 411,
+      "vice_captain_id": 155,
+      "chip_played": null,
+      "transfers": [],
+      "bank_after": 0.0,
+      "free_transfers_after": 1,
+      "points": null,
+      "projected_points": 61.68,
+      "note": "Season-opening squad -- the model's own GW1 recommendation (reports/gw1_recommendation.md). One human judgment call is baked in here: Haaland was force-included over the pure optimizer's pick (cost: ~4.65 projected points over GW1-4, per the report). Every decision from gameweek 2 onward is the model acting alone."
+    }
+  ]
+}

@@ -1,0 +1,33 @@
+web_name,adjustment_type,value,reason,source_agent
+Raya,upgrade,,Nailed #1; home opener vs promoted Coventry,GK agent
+Donnarumma,upgrade,,Confirmed undisputed #1 under new boss Maresca,GK agent
+Pickford,upgrade,,Undisputed #1 with favorable early schedule,GK agent
+Henderson,downgrade,,Palace defense in flux after Lacroix sale,GK agent
+Roefs,downgrade,,Brutal early fixtures plus transfer-saga distraction risk,GK agent
+Martinez,downgrade,,Nailed but recurring injury history,GK agent
+Sánchez,downgrade,,Genuine open competition with Penders not fully nailed,GK agent
+Lacroix,upgrade,,Marquee GBP52m Chelsea signing straight into CB pairing,DEF agent
+O'Reilly,upgrade,,Incumbent LB 15 goal involvements last season fits Maresca system,DEF agent
+Calafiori,upgrade,,Strong preseason form assist forward threat,DEF agent
+Gabriel,downgrade,,Doubtful recovering from hamstring surgery,DEF agent
+Dalot,downgrade,,Rotation risk from Yoro competition at RB,DEF agent
+Gusto,downgrade,,Rotation risk Chelsea open to selling,DEF agent
+Virgil,downgrade,,Fitness watch missed last two preseason friendlies (FPL web_name is "Virgil" not "Van Dijk" -- this override silently failed to match until fixed here),DEF agent
+B.Fernandes,upgrade,,Nailed sole penalty taker plus FK and corners,MID agent
+Amad,upgrade,,Nailed cheap enabler in settled Man Utd front line,MID agent
+Palmer,upgrade,,Number one penalty taker nailed under Alonso,MID agent
+Neto,upgrade,,Started ahead of Rogers and Estevao in latest predicted XI,MID agent
+Semenyo,upgrade,,Confirmed real transfer nailed starter,MID agent
+Gakpo,upgrade,,Nailed number two penalty taker,MID agent
+Szoboszlai,upgrade,,Nailed number one on all three set piece categories,MID agent
+Gibbs-White,upgrade,,Nailed number two penalties number one free kicks,MID agent
+Enzo,downgrade,,Missing from latest predicted XI Lavia and Caicedo preferred pivot,MID agent
+Haaland,upgrade,,Undisputed number one penalty taker and focal point,FWD agent
+Gyökeres,upgrade,,Now Arsenal's number one penalty taker ahead of Saka plus strong form,FWD agent
+Thiago,upgrade,,Nailed number one penalty taker second top PL scorer last season,FWD agent
+Igor Jesus,upgrade,,In-form four goals in four preseason games genuine starter,FWD agent
+Mateta,upgrade,,Nailed confirmed penalty taker no competition,FWD agent
+Watkins,downgrade,,Lost clear penalty duty to Malen this cycle,FWD agent
+Welbeck,downgrade,,Signed as depth backup competing with Emegha not a starter,FWD agent
+Emegha,downgrade,,Fit for opener but buried behind Joao Pedro and Welbeck,FWD agent
+Haaland,must-have,,Neil's own call -- nails penalties consistently trust his floor,Neil (docs/player_judgments.md)

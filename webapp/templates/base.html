@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{% block title %}FPL Squad Advisor{% end %}</title>
+  <script>
+    // Set the theme before first paint so switching to light mode earlier
+    // doesn't cause a flash of the dark theme on every new page load.
+    (function () {
+      try {
+        if (localStorage.getItem('fpl-theme') === 'light') {
+          document.documentElement.setAttribute('data-theme', 'light');
+        }
+      } catch (e) {}
+    })();
+  </script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/css/style.css?v={{ asset_version }}">
+  {% block head %}{% end %}
+</head>
+<body>
+  <nav class="navbar">
+    <div class="navbar-inner">
+      <a class="brand" href="/">
+        <span class="brand-mark">&#9917;</span>
+        FPL Squad Advisor
+      </a>
+      <div class="nav-right">
+        <div class="nav-links" id="nav-links">
+          <a href="/">Overview</a>
+          <a href="/home">Home</a>
+          <a href="/finder">Finder</a>
+          <a href="/players">Players</a>
+          <a href="/analytics">Analytics</a>
+          <a href="/ai-performance">AI Performance</a>
+          <a href="https://fantasy.premierleague.com" target="_blank" rel="noopener">Official FPL &#8599;</a>
+        </div>
+        <button id="theme-toggle" class="theme-toggle-btn" type="button" title="Toggle light/dark theme" aria-label="Toggle light/dark theme">
+          <span id="theme-icon">&#127769;</span>
+        </button>
+        <button id="nav-toggle" class="nav-toggle-btn" type="button" aria-label="Toggle menu" aria-expanded="false" aria-controls="nav-links">
+          <span></span><span></span><span></span>
+        </button>
+      </div>
+    </div>
+  </nav>
+
+  <div class="page">
+    {% block content %}{% end %}
+
+    <div class="meta-note">
+      Built on a statistical model backtested against the full 2025/26 season, live 2026/27 player data,
+      and real prior-season team/possession context.
+      {% if built_at %}Data snapshot built {{ built_at }}.{% end %}
+      Not affiliated with the Premier League or Fantasy Premier League.
+    </div>
+  </div>
+
+  <script>
+    // Reused by every chart on the site (players/player/compare pages) so
+    // chart colors follow whichever theme is active, instead of being
+    // hardcoded to the dark palette.
+    function cssVar(name) {
+      return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+    }
+
+    (function () {
+      var btn = document.getElementById('theme-toggle');
+      var icon = document.getElementById('theme-icon');
+      function isLight() { return document.documentElement.getAttribute('data-theme') === 'light'; }
+      function syncIcon() { icon.textContent = isLight() ? '☀️' : '🌙'; }
+      syncIcon();
+      btn.addEventListener('click', function () {
+        if (isLight()) {
+          document.documentElement.removeAttribute('data-theme');
+          try { localStorage.setItem('fpl-theme', 'dark'); } catch (e) {}
+        } else {
+          document.documentElement.setAttribute('data-theme', 'light');
+          try { localStorage.setItem('fpl-theme', 'light'); } catch (e) {}
+        }
+        syncIcon();
+      });
+    })();
+
+    // Mobile hamburger menu -- on desktop .nav-links is always visible and
+    // this button is hidden by CSS, so none of this runs visibly there.
+    (function () {
+      var toggle = document.getElementById('nav-toggle');
+      var links = document.getElementById('nav-links');
+      if (!toggle || !links) return;
+
+      function closeMenu() {
+        links.classList.remove('open');
+        toggle.setAttribute('aria-expanded', 'false');
+      }
+
+      toggle.addEventListener('click', function (e) {
+        e.stopPropagation();
+        var open = links.classList.toggle('open');
+        toggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+      });
+
+      // Tapping a link should navigate AND close the menu, not leave it
+      // open behind the next page (it would otherwise persist since this
+      // is a full page reload to a template that starts fresh -- harmless,
+      // but closing first avoids a one-frame flash of the open menu).
+      links.addEventListener('click', function (e) {
+        if (e.target.tagName === 'A') closeMenu();
+      });
+
+      document.addEventListener('click', function (e) {
+        if (!links.contains(e.target) && !toggle.contains(e.target)) closeMenu();
+      });
+      document.addEventListener('keydown', function (e) {
+        if (e.key === 'Escape') closeMenu();
+      });
+    })();
+  </script>
+
+  {% block scripts %}{% end %}
+</body>
+</html>

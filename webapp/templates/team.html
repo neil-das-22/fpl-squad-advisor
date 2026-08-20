@@ -1,0 +1,168 @@
+{% extends "base.html" %}
+{% block title %}{% if not error %}{{ team_name }} -- FPL Squad Advisor{% else %}Team lookup -- FPL Squad Advisor{% end %}{% end %}
+
+{% block content %}
+{% if error %}
+  <div class="hero">
+    <h1>Hmm, that didn't work</h1>
+    <p class="lede">{{ error }}</p>
+    <a class="btn" href="/home">&larr; Try another team ID</a>
+  </div>
+{% else %}
+
+  {% if demo_mode %}
+  <div class="banner warn">
+    <strong>Showing a demo squad</strong> &mdash; couldn't fetch your real squad for team {{ entry_id }}.
+    This page's logic is real; only the live lookup failed. See below for why.
+  </div>
+  {% end %}
+
+  {% if note %}
+  <div class="banner {% if demo_mode %}warn{% end %}">{{ note }}</div>
+  {% end %}
+
+  <div class="hero" style="padding-top:40px; padding-bottom:24px;">
+    <div class="eyebrow">Gameweeks {{ gw_start }}&ndash;{{ gw_end }}</div>
+    <h1>{{ team_name }}</h1>
+    <p class="lede">{{ manager_name }}{% if entry_id %} &middot; Team ID {{ entry_id }}{% end %}</p>
+  </div>
+
+  <div class="card-grid">
+    <div class="stat-card">
+      <div class="stat-value positive">{{ '%.1f' % total_xp }}</div>
+      <div class="stat-label">Projected points, GW{{ gw_start }}&ndash;{{ gw_end }}</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-value">{{ '%.1f' % base_total }}</div>
+      <div class="stat-label">Starting XI, before captaincy</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-value" style="color: var(--gold);">+{{ '%.1f' % captain_extra }}</div>
+      <div class="stat-label">Captain bonus</div>
+    </div>
+  </div>
+
+  <div class="section">
+    <h2>Starting XI</h2>
+    <div class="click-hint">&#128070; Click any player for their full stats, fixtures, and price-range alternatives</div>
+    <div class="pitch-wrap">
+      <div class="pitch">
+        {% for row in pitch_rows %}
+        <div class="pitch-row">
+          {% for p in row['players'] %}
+          <a class="player-card" href="/player/{{ p['id'] }}" title="View {{ p['web_name'] }}'s stats">
+            <div class="player-photo-wrap">
+              <div class="photo-clip">
+                <img class="player-photo" src="{{ p['photo_url'] }}" alt="{{ p['web_name'] }}"
+                     onerror="this.onerror=null; this.style.transform='none'; this.src='data:image/svg+xml;utf8,<svg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 80 80%27><rect width=%2780%27 height=%2780%27 rx=%2740%27 fill=%27%23262c3d%27/><text x=%2740%27 y=%2750%27 font-size=%2732%27 text-anchor=%27middle%27 fill=%27%239aa3b8%27 font-family=%27sans-serif%27>{{ p['web_name'][0] }}</text></svg>';">
+              </div>
+              {% if p.get('badge_url') %}
+              <img class="team-badge" src="{{ p['badge_url'] }}" alt="{{ p['team_name'] }}" title="{{ p['team_name'] }}"
+                   onerror="this.style.display='none';">
+              {% end %}
+              {% if p['is_captain'] %}<span class="captain-badge" title="Captain">C</span>{% end %}
+              {% if p['is_vice_captain'] %}<span class="vice-badge" title="Vice-captain">V</span>{% end %}
+            </div>
+            <div class="player-name-tag">{{ p['web_name'] }}</div>
+            <div class="player-gw-xp" title="Projected points, next 4 gameweeks">
+              <span>{{ '%.1f' % p.get('xp_gw1', 0) }}</span>
+              <span>{{ '%.1f' % p.get('xp_gw2', 0) }}</span>
+              <span>{{ '%.1f' % p.get('xp_gw3', 0) }}</span>
+              <span>{{ '%.1f' % p.get('xp_gw4', 0) }}</span>
+            </div>
+          </a>
+          {% end %}
+        </div>
+        {% end %}
+      </div>
+
+      <div class="section" style="margin-top:20px;">
+        <h3 style="margin-bottom:10px;">Bench</h3>
+        <div class="bench-strip">
+          {% for p in bench %}
+          <a class="player-card" href="/player/{{ p['id'] }}" title="View {{ p['web_name'] }}'s stats">
+            <div class="player-photo-wrap">
+              <div class="photo-clip">
+                <img class="player-photo" src="{{ p['photo_url'] }}" alt="{{ p['web_name'] }}"
+                     onerror="this.onerror=null; this.style.transform='none'; this.src='data:image/svg+xml;utf8,<svg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 64 64%27><rect width=%2764%27 height=%2764%27 rx=%2732%27 fill=%27%23262c3d%27/><text x=%2732%27 y=%2741%27 font-size=%2726%27 text-anchor=%27middle%27 fill=%27%239aa3b8%27 font-family=%27sans-serif%27>{{ p['web_name'][0] }}</text></svg>';">
+              </div>
+              {% if p.get('badge_url') %}
+              <img class="team-badge" src="{{ p['badge_url'] }}" alt="{{ p['team_name'] }}" title="{{ p['team_name'] }}"
+                   onerror="this.style.display='none';">
+              {% end %}
+            </div>
+            <div class="player-name-tag">{{ p['web_name'] }}</div>
+            <div class="player-gw-xp" title="Projected points, next 4 gameweeks">
+              <span>{{ '%.1f' % p.get('xp_gw1', 0) }}</span>
+              <span>{{ '%.1f' % p.get('xp_gw2', 0) }}</span>
+              <span>{{ '%.1f' % p.get('xp_gw3', 0) }}</span>
+              <span>{{ '%.1f' % p.get('xp_gw4', 0) }}</span>
+            </div>
+          </a>
+          {% end %}
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="section">
+    <h2>Weakest links in your XI</h2>
+    <p>Lowest projected points among your starters, with realistic upgrade options at the same position &mdash; not budget-checked (see Transfer recommendation below for a move that's actually costed out).</p>
+    <div class="click-hint">&#128070; Click a player or an alternative to see their full profile</div>
+    <div class="card-grid">
+      {% for p in weakest %}
+      <div class="stat-card">
+        <a href="/player/{{ p['id'] }}" style="display:block;">
+          <div style="font-weight:700; font-size:15px; color:var(--text-primary);">{{ p['web_name'] }}</div>
+          <div style="font-size:13px; color: var(--text-tertiary); margin: 4px 0 10px;">{{ p['team_name'] }} &middot; {{ p['position'] }}</div>
+          <div class="stat-value negative" style="font-size:22px;">{{ '%.1f' % p['xp'] }} xP</div>
+        </a>
+        {% if p['alternatives'] %}
+        <div style="margin-top:14px; padding-top:14px; border-top:1px solid var(--border-subtle);">
+          <div class="stat-label" style="margin-bottom:8px;">Consider instead</div>
+          {% for alt in p['alternatives'] %}
+          <a href="/player/{{ alt['id'] }}" style="display:flex; justify-content:space-between; gap:8px; padding:5px 0; font-size:13px; color:var(--text-primary);">
+            <span>{{ alt['web_name'] }} <span style="color:var(--text-tertiary);">({{ alt['team_name'] }})</span></span>
+            <span style="white-space:nowrap; font-variant-numeric:tabular-nums;">&pound;{{ '%.1f' % alt['price_m'] }}m &middot; <span style="color:var(--positive); font-weight:700;">{{ '%.1f' % alt['xp'] }}</span></span>
+          </a>
+          {% end %}
+        </div>
+        {% end %}
+      </div>
+      {% end %}
+    </div>
+  </div>
+
+  <div class="section">
+    <h2>Transfer recommendation</h2>
+    {% if transfer_rec is None %}
+      <div class="card"><p style="margin:0;">Couldn't compute a transfer recommendation for this squad right now.</p></div>
+    {% elif transfer_rec['recommendation'] == 'no_transfer' %}
+      <div class="card">
+        <span class="pill pill-neutral">Hold</span>
+        <p style="margin-top:14px;">{{ transfer_rec['notes'] }}</p>
+      </div>
+    {% else %}
+      <div class="card">
+        <span class="pill pill-positive">Recommended &mdash; net +{{ '%.2f' % transfer_rec['net_gain'] }} xP</span>
+        <p style="margin-top:14px;">{{ transfer_rec['notes'] }}</p>
+        {% for t in transfer_rec['transfers'] %}
+        <div style="display:flex; align-items:center; gap:16px; margin-top:14px; padding:14px; background: var(--bg-elevated); border-radius: var(--radius-sm);">
+          <div style="flex:1;">
+            <div class="stat-label">OUT</div>
+            <div style="font-weight:700;">{{ t['out']['web_name'] }} <span style="color:var(--text-tertiary); font-weight:400;">&pound;{{ '%.1f' % t['out']['price_m'] }}m &middot; {{ '%.1f' % t['out']['xp'] }} xP</span></div>
+          </div>
+          <div style="color: var(--accent-bright); font-size:20px;">&rarr;</div>
+          <div style="flex:1;">
+            <div class="stat-label">IN</div>
+            <div style="font-weight:700;">{{ t['in']['web_name'] }} <span style="color:var(--text-tertiary); font-weight:400;">&pound;{{ '%.1f' % t['in']['price_m'] }}m &middot; {{ '%.1f' % t['in']['xp'] }} xP</span></div>
+          </div>
+        </div>
+        {% end %}
+        <p class="hint" style="margin-top:14px;">Hit cost already subtracted from the net gain above &mdash; this is the number that actually matters, not the raw points swing.</p>
+      </div>
+    {% end %}
+  </div>
+
+{% end %}
+{% end %}

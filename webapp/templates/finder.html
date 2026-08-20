@@ -1,0 +1,77 @@
+{% extends "base.html" %}
+{% block title %}Player Finder -- FPL Squad Advisor{% end %}
+
+{% block content %}
+<div class="hero" style="padding-top:40px; padding-bottom:16px;">
+  <div class="eyebrow">GW{{ gw_start }}&ndash;{{ gw_end }}</div>
+  <h1>Find your next signing</h1>
+  <p class="lede">Set a position and a price ceiling, and see the best projected picks that fit -- optionally checked against your own squad so it won't suggest a club you're already maxed out on.</p>
+</div>
+
+<form class="finder-form" method="get" action="/finder">
+  <div class="finder-field">
+    <label for="position">Position</label>
+    <select id="position" name="position">
+      {% for pos in ['ALL', 'GKP', 'DEF', 'MID', 'FWD'] %}
+      <option value="{{ pos }}" {% if position == pos %}selected{% end %}>{{ pos }}</option>
+      {% end %}
+    </select>
+  </div>
+  <div class="finder-field">
+    <label for="max_price">Max price (&pound;m)</label>
+    <input type="number" id="max_price" name="max_price" min="3.5" max="16" step="0.5" value="{{ max_price }}">
+  </div>
+  <div class="finder-field">
+    <label for="team_id">Your team ID (optional)</label>
+    <input type="text" id="team_id" name="team_id" inputmode="numeric" placeholder="e.g. 1234567" value="{{ team_id }}">
+  </div>
+  <button class="btn" type="submit">Find players</button>
+</form>
+
+{% if team_lookup_error %}
+<div class="banner warn">{{ team_lookup_error }}</div>
+{% end %}
+
+{% if excluded_clubs %}
+<div class="banner">
+  Already have 3 from {{ ', '.join(excluded_clubs) }} &mdash; hiding further picks from {% if len(excluded_clubs) == 1 %}that club{% else %}those clubs{% end %}.
+</div>
+{% end %}
+
+<div class="card">
+  {% if not results %}
+  <p style="margin:0;">No players match that position and price. Try raising the price limit.</p>
+  {% else %}
+  {% for r in results %}
+  <a class="finder-card" href="/player/{{ r['id'] }}">
+    <div class="player-photo-wrap" style="width:56px; height:56px;">
+      <div class="photo-clip" style="width:56px; height:56px;">
+        <img class="player-photo" src="{{ r['photo_url'] }}" alt="{{ r['web_name'] }}"
+             onerror="this.onerror=null; this.style.transform='none'; this.src='data:image/svg+xml;utf8,<svg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 56 56%27><rect width=%2756%27 height=%2756%27 rx=%2728%27 fill=%27%23262c3d%27/><text x=%2728%27 y=%2735%27 font-size=%2722%27 text-anchor=%27middle%27 fill=%27%239aa3b8%27 font-family=%27sans-serif%27>{{ r['web_name'][0] }}</text></svg>';">
+      </div>
+      {% if r.get('badge_url') %}
+      <img class="team-badge" style="width:20px; height:20px;" src="{{ r['badge_url'] }}" alt="{{ r['team_name'] }}" onerror="this.style.display='none';">
+      {% end %}
+    </div>
+    <div class="finder-card-info">
+      <div class="finder-card-name">{{ r['web_name'] }} <span class="pos-tag pos-{{ r['position'] }}" style="margin-left:6px;">{{ r['position'] }}</span></div>
+      <div class="finder-card-meta">
+        {{ r['team_name'] }} &middot; &pound;{{ '%.1f' % r['price_m'] }}m
+        {% if r.get('fixture_difficulty') %}&middot; fixture run {{ r['fixture_difficulty'] }}/5{% end %}
+      </div>
+      <div class="player-gw-xp" title="Projected points, next 4 gameweeks" style="margin-top:6px;">
+        <span>{{ '%.1f' % r.get('xp_gw1', 0) }}</span>
+        <span>{{ '%.1f' % r.get('xp_gw2', 0) }}</span>
+        <span>{{ '%.1f' % r.get('xp_gw3', 0) }}</span>
+        <span>{{ '%.1f' % r.get('xp_gw4', 0) }}</span>
+      </div>
+    </div>
+    <div class="finder-card-total">
+      <div class="stat-value positive" style="font-size:22px;">{{ '%.1f' % r['xp'] }}</div>
+      <div class="stat-label">xP</div>
+    </div>
+  </a>
+  {% end %}
+  {% end %}
+</div>
+{% end %}

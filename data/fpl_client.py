@@ -80,6 +80,68 @@ def fetch_player_summary(player_id: int) -> dict:
     return _get(f"{BASE_URL}/element-summary/{player_id}/")
 
 
+# ---------------------------------------------------------------------------
+# Manager (a real person's FPL team) endpoints -- added for the public
+# website's "look up my team" feature.
+# ---------------------------------------------------------------------------
+#
+# Both endpoints are PUBLIC and read-only: no login, password, or API key
+# required. A manager's team ID is the number in the URL when they view
+# their own team on fantasy.premierleague.com (e.g.
+# .../entry/1234567/event/1/ -> team ID 1234567) -- it is not a secret, it's
+# how the official site itself links to a public team. This is deliberately
+# the ONLY way the website asks for account information; it never asks a
+# user for their FPL email/password (entering those into a third-party site
+# would be a real credential-phishing pattern, not something this project
+# does).
+
+
+def fetch_manager_entry(entry_id: int) -> dict:
+    """A manager's public profile: display name, team name, overall rank,
+    total points, etc. Raises `requests.HTTPError` (404) for a team ID that
+    doesn't exist -- the caller should catch this and show a friendly
+    "team not found" message rather than a stack trace.
+    """
+    return _get(f"{BASE_URL}/entry/{entry_id}/")
+
+
+def fetch_manager_picks(entry_id: int, event: int) -> dict:
+    """A manager's 15-player squad for one gameweek: `picks` (each with
+    `element` = player id, `position` 1-15, `is_captain`, `is_vice_captain`,
+    `multiplier`), plus `entry_history` (bank, squad value, points that
+    gameweek). Raises `requests.HTTPError` if the manager hasn't set a
+    squad for that gameweek yet (e.g. asking for a future, unplayed
+    gameweek) or the team ID doesn't exist.
+    """
+    return _get(f"{BASE_URL}/entry/{entry_id}/event/{event}/picks/")
+
+
+def parse_manager_squad(picks_payload: dict, players_df: pd.DataFrame) -> pd.DataFrame:
+    """Join a manager's raw `picks` list onto our own players table by id,
+    so the rest of the app can treat "my squad" exactly like any other
+    slice of `players_df` -- same columns, same downstream code.
+
+    Adds `squad_position` (1-15, FPL's own slot order: 1-11 starting XI in
+    formation order, 12-15 bench), `is_captain`, `is_vice_captain`, and
+    `multiplier` (2 for captain, 3 for a Triple-Captained pick, 0 for an
+    unused bench spot in some historical payload shapes -- callers should
+    not assume it's always 0 or 1 for non-captains).
+    """
+    picks = pd.DataFrame(picks_payload["picks"])
+    picks = picks.rename(columns={"element": "id", "position": "squad_position"})
+    merged = players_df.merge(
+        picks[["id", "squad_position", "is_captain", "is_vice_captain", "multiplier"]],
+        on="id", how="inner",
+    )
+    if len(merged) != len(picks):
+        missing = set(picks["id"]) - set(merged["id"])
+        raise ValueError(
+            f"{len(missing)} of {len(picks)} squad picks did not match our player "
+            f"table (ids: {missing}) -- our cached player data may be stale."
+        )
+    return merged.sort_values("squad_position").reset_index(drop=True)
+
+
 def save_raw(data, filename: str) -> str:
     os.makedirs(RAW_DIR, exist_ok=True)
     path = os.path.join(RAW_DIR, filename)
@@ -115,7 +177,7 @@ def validate_schema(bootstrap: dict, fixtures: list) -> list[str]:
 
 def load_teams_df(bootstrap: dict) -> pd.DataFrame:
     teams = pd.DataFrame(bootstrap["teams"])[
-        ["id", "name", "short_name", "strength",
+        ["id", "code", "name", "short_name", "strength",
          "strength_overall_home", "strength_overall_away",
          "strength_attack_home", "strength_attack_away",
          "strength_defence_home", "strength_defence_away"]
@@ -133,6 +195,12 @@ def load_positions_df(bootstrap: dict) -> pd.DataFrame:
 
 def load_players_df(bootstrap: dict) -> pd.DataFrame:
     players = pd.DataFrame(bootstrap["elements"])
+    # NOTE: `players` already carries its own `team_code` field straight from
+    # the API (each element duplicates its club's stable code onto the row) --
+    # do NOT also pull `code` off `teams` here and rename it to the same
+    # name. That previously caused a silent pandas merge collision
+    # (`team_code_x`/`team_code_y`, neither literally named `team_code`)
+    # that made the crest-badge URL builder quietly get no column to read.
     teams = load_teams_df(bootstrap)[["id", "name", "short_name", "is_promoted"]].rename(
         columns={"id": "team", "name": "team_name", "short_name": "team_short"}
     )
@@ -153,7 +221,7 @@ def load_players_df(bootstrap: dict) -> pd.DataFrame:
         # wrong players (measured against the 2025/26 archive: 568 of 573
         # current `id`s now belong to a different `code` than they did last
         # season). Everything that joins across seasons must use `code`.
-        "id", "code", "full_name", "web_name", "team_name", "team_short", "is_promoted",
+        "id", "code", "full_name", "web_name", "team_name", "team_short", "team_code", "is_promoted",
         "position", "price_m", "total_points", "points_per_game", "form",
         "selected_by_percent", "minutes", "starts", "goals_scored", "assists",
         "clean_sheets", "goals_conceded", "expected_goals", "expected_assists",
@@ -168,6 +236,20 @@ def load_players_df(bootstrap: dict) -> pd.DataFrame:
         # backtest/results_2025_26.md section 8. season-cumulative totals,
         # converted to a per-90 rate in xp_model via shrunk_per90_rate().
         "clearances_blocks_interceptions", "tackles", "recoveries",
+        # Chance-creation / attacking-output proxies and discipline record.
+        # FPL's public API does NOT expose pass-completion counts or a
+        # standalone "big chances created" stat (that's Opta-tier data FPL
+        # doesn't publish) -- `creativity` (an ICT sub-index built from
+        # passing/crossing/chance-creation events) and `threat` are the
+        # closest real substitutes, and are used as documented proxies, not
+        # a silent stand-in. `yellow_cards`/`red_cards` are real counts, used
+        # as a negative factor for the defensive-midfielder profile.
+        "creativity", "threat", "yellow_cards", "red_cards",
+        # Real, structured set-piece pecking order -- previously the MID/FWD
+        # research agents had to find this via web search each week even
+        # though the API has published it directly all along. 1 = primary
+        # taker, higher numbers = further down the list, null = not on it.
+        "penalties_order", "corners_and_indirect_freekicks_order", "direct_freekicks_order",
     ]
     keep_cols = [c for c in keep_cols if c in df.columns]
     return df[keep_cols]
@@ -228,6 +310,20 @@ PRIOR_SEASON_COLUMN_MAP = {
     # model exists to predict. See xp_model.calculate_xp().
     "expected_goals": "expected_goals_prev_season",
     "expected_assists": "expected_assists_prev_season",
+    # Added for the MID-agent rebuild: attacking output (goals/assists),
+    # creativity (chance-creation proxy -- see keep_cols comment in
+    # load_players_df for why this substitutes for "big chances created",
+    # which FPL's API doesn't publish), and cards (discipline record for the
+    # defensive-midfielder profile). Same carryover logic as xG/xA above:
+    # pre-rollover these duplicate the live bootstrap-static numbers, but
+    # once the new season starts accumulating fresh data this is what keeps
+    # last season's baseline available instead of it silently vanishing.
+    "goals_scored": "goals_scored_prev_season",
+    "assists": "assists_prev_season",
+    "creativity": "creativity_prev_season",
+    "threat": "threat_prev_season",
+    "yellow_cards": "yellow_cards_prev_season",
+    "red_cards": "red_cards_prev_season",
 }
 
 PRIOR_SEASON_COLUMNS = [
@@ -243,6 +339,12 @@ PRIOR_SEASON_COLUMNS = [
     "recoveries_prev_season",
     "expected_goals_prev_season",
     "expected_assists_prev_season",
+    "goals_scored_prev_season",
+    "assists_prev_season",
+    "creativity_prev_season",
+    "threat_prev_season",
+    "yellow_cards_prev_season",
+    "red_cards_prev_season",
 ]
 
 
@@ -340,6 +442,77 @@ def attach_prior_season_stats(players_df: pd.DataFrame,
 
     merged = left.merge(right, on="_code_key", how="left").drop(columns=["_code_key"])
     return merged
+
+
+# ---------------------------------------------------------------------------
+# Team-level prior-season reference data (possession, big chances created,
+# pass accuracy -- NOT published by the FPL API or the vaastav archive at all)
+# ---------------------------------------------------------------------------
+#
+# WHY THIS IS A SEPARATE FILE FROM EVERYTHING ELSE IN THIS MODULE
+# Every other prior-season number in this file comes from the FPL API or the
+# vaastav archive, which mirrors it. Team possession %, team big-chances-
+# created, and team pass-accuracy % do not exist in either source -- checked
+# directly (grepped every column header in players_raw.csv, teams.csv,
+# merged_gw.csv, fixtures.csv, and the live bootstrap-static.json; none of
+# them have it). This is the one dataset in the whole project sourced from
+# somewhere else: Sofascore's team-statistics API for the 2025/26 Premier
+# League season (unique-tournament 17, season 76986), pulled via a live
+# Chrome fetch in-session (fbref.com blocked the same request behind bot
+# detection; premierleague.com's stats pages returned dead links).
+#
+# COVERAGE: 17 of this season's 20 clubs. The 2025/26 Premier League's 20
+# clubs and this season's (2026/27) 20 clubs overlap on exactly 17 -- three
+# clubs relegated at the end of 2025/26 (not needed here) were replaced by
+# this season's three promoted clubs (Coventry City, Ipswich Town, Hull
+# City), who were playing Championship football last season and have no
+# top-flight possession/chance-creation data to pull. Same "NaN is the
+# point, not a bug" principle as PRIOR_SEASON_COLUMNS above -- a promoted
+# club's missing row is real information (no Premier League history),
+# not a gap to paper over with a league-average guess.
+TEAM_PRIOR_SEASON_CSV_DEFAULT = os.path.join(RAW_DIR, "historical_2025_26", "team_possession.csv")
+
+TEAM_PRIOR_SEASON_COLUMNS = [
+    "team_name",
+    "possession_pct_prev_season",
+    "big_chances_created_prev_season",
+    "pass_accuracy_pct_prev_season",
+]
+
+
+def load_team_prior_season_reference(csv_path: str = TEAM_PRIOR_SEASON_CSV_DEFAULT) -> pd.DataFrame:
+    """Team-level prior-season possession/chance-creation/passing reference.
+
+    Returns one row per club (17 of the current season's 20 -- see module
+    comment above for why 3 are structurally missing), keyed on `team_name`
+    exactly as `load_teams_df()` spells it (already hand-mapped from
+    Sofascore's naming when this CSV was built -- "Manchester City" ->
+    "Man City", "Nottingham Forest" -> "Nott'm Forest", etc. -- so this
+    joins on team_name directly with no further name-matching needed).
+    """
+    if not os.path.exists(csv_path):
+        raise FileNotFoundError(f"team prior-season reference CSV not found: {csv_path}")
+    raw = pd.read_csv(csv_path)
+    for col in TEAM_PRIOR_SEASON_COLUMNS[1:]:
+        raw[col] = pd.to_numeric(raw[col], errors="coerce")
+    return raw[TEAM_PRIOR_SEASON_COLUMNS]
+
+
+def attach_team_prior_season_stats(teams_df: pd.DataFrame,
+                                   team_prior_df: pd.DataFrame | None) -> pd.DataFrame:
+    """Left-join team-level prior-season stats onto a `load_teams_df()` result.
+
+    Unmatched clubs (this season's 3 promoted teams) get NaN, same
+    contract as `attach_prior_season_stats()`. `team_prior_df=None` still
+    returns the full column set, all-NaN.
+    """
+    out = teams_df.copy()
+    added = [c for c in TEAM_PRIOR_SEASON_COLUMNS if c != "team_name"]
+    if team_prior_df is None or len(team_prior_df) == 0:
+        for col in added:
+            out[col] = pd.NA
+        return out
+    return out.merge(team_prior_df, left_on="name", right_on="team_name", how="left").drop(columns=["team_name"])
 
 
 def load_fixtures_df(fixtures: list, bootstrap: dict) -> pd.DataFrame:

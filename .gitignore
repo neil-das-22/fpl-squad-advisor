@@ -1,7 +1,19 @@
 __pycache__/
 *.pyc
 .env
-data/raw/*.json
+.DS_Store
+
+# Most data/processed/*.csv files are one-off report exports the live app
+# never reads at runtime -- but a couple of files ARE required, so they're
+# explicitly un-ignored below rather than silently missing from a fresh
+# clone/deploy.
 data/processed/*.csv
-data/raw/historical_2025_26/
+!data/processed/research_overrides_gw1.csv
+
 backtest/__pycache__/
+
+# NOTE: data/raw/bootstrap_static.json, data/raw/fixtures.json, and
+# data/raw/historical_2025_26/ are intentionally tracked (not ignored).
+# The webapp reads historical_2025_26/ directly with no live-fetch
+# fallback, and the two JSON snapshots act as a fallback if the live FPL
+# API refresh at startup ever fails on the host.

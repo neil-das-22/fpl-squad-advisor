@@ -23,7 +23,7 @@ SAMPLE_BOOTSTRAP = {
             # `code` and `id` are deliberately unrelated numbers here, exactly
             # as they are in the real payload -- see test_prior_season_join().
             "id": 1, "code": 900001, "first_name": "Erling", "second_name": "Haaland",
-            "web_name": "Haaland", "team": 1, "element_type": 4, "now_cost": 150,
+            "web_name": "Haaland", "team": 1, "team_code": 43, "element_type": 4, "now_cost": 150,
             "total_points": 0, "points_per_game": "0.0", "form": "0.0",
             "selected_by_percent": "45.0", "minutes": 0, "starts": 0,
             "goals_scored": 0, "assists": 0, "clean_sheets": 0, "goals_conceded": 0,
@@ -35,7 +35,7 @@ SAMPLE_BOOTSTRAP = {
         },
         {
             "id": 2, "code": 900002, "first_name": "Haji", "second_name": "Wright",
-            "web_name": "Wright", "team": 2, "element_type": 3, "now_cost": 55,
+            "web_name": "Wright", "team": 2, "team_code": 14, "element_type": 3, "now_cost": 55,
             "total_points": 0, "points_per_game": "0.0", "form": "0.0",
             "selected_by_percent": "0.5", "minutes": 0, "starts": 0,
             "goals_scored": 0, "assists": 0, "clean_sheets": 0, "goals_conceded": 0,
@@ -47,13 +47,13 @@ SAMPLE_BOOTSTRAP = {
     ],
     "teams": [
         {
-            "id": 1, "name": "Man City", "short_name": "MCI", "strength": 5,
+            "id": 1, "code": 43, "name": "Man City", "short_name": "MCI", "strength": 5,
             "strength_overall_home": 1350, "strength_overall_away": 1370,
             "strength_attack_home": 1360, "strength_attack_away": 1380,
             "strength_defence_home": 1340, "strength_defence_away": 1360,
         },
         {
-            "id": 2, "name": "Coventry City", "short_name": "COV", "strength": 2,
+            "id": 2, "code": 14, "name": "Coventry City", "short_name": "COV", "strength": 2,
             "strength_overall_home": 1050, "strength_overall_away": 1030,
             "strength_attack_home": 1040, "strength_attack_away": 1020,
             "strength_defence_home": 1050, "strength_defence_away": 1030,
@@ -194,6 +194,89 @@ def test_prior_season_join():
     print("  prior-season join ok (1 matched on code, 1 correctly left NaN)")
 
 
+def test_team_prior_season_reference_and_join():
+    """Team-level possession/big-chances/pass-accuracy reference (Sofascore-
+    sourced, see fpl_client.py module comment) -- same NaN-for-unmatched
+    contract as the player-level version, exercised against a small
+    synthetic CSV rather than the real 17-team file so this test doesn't
+    depend on data/raw/ contents."""
+    with tempfile.TemporaryDirectory() as tmp:
+        csv_path = os.path.join(tmp, "team_possession.csv")
+        pd.DataFrame([
+            {"team_name": "Man City", "possession_pct_prev_season": 60.5,
+             "big_chances_created_prev_season": 94, "pass_accuracy_pct_prev_season": 88.5},
+            {"team_name": "Everton", "possession_pct_prev_season": 43.6,
+             "big_chances_created_prev_season": 53, "pass_accuracy_pct_prev_season": 79.7},
+        ]).to_csv(csv_path, index=False)
+        prior = fpl_client.load_team_prior_season_reference(csv_path)
+
+    assert list(prior.columns) == fpl_client.TEAM_PRIOR_SEASON_COLUMNS
+    assert len(prior) == 2
+
+    teams = fpl_client.load_teams_df(SAMPLE_BOOTSTRAP)  # Man City, Coventry City
+    merged = fpl_client.attach_team_prior_season_stats(teams, prior)
+    assert len(merged) == len(teams)
+
+    man_city = merged[merged["name"] == "Man City"].iloc[0]
+    assert abs(man_city["possession_pct_prev_season"] - 60.5) < 1e-9
+    assert man_city["big_chances_created_prev_season"] == 94
+
+    # Coventry (this season's promoted club, no row in the reference at all)
+    # must be NaN, not zero or a league-average guess.
+    coventry = merged[merged["name"] == "Coventry City"].iloc[0]
+    assert pd.isna(coventry["possession_pct_prev_season"])
+
+    # None still yields the full schema, all-NaN. (team_name itself isn't
+    # added in this branch -- load_teams_df's own `name` column already
+    # plays that role -- so the check is against the *_prev_season columns.)
+    empty = fpl_client.attach_team_prior_season_stats(teams, None)
+    added_cols = [c for c in fpl_client.TEAM_PRIOR_SEASON_COLUMNS if c != "team_name"]
+    assert set(added_cols) <= set(empty.columns)
+    assert empty["possession_pct_prev_season"].isna().all()
+
+    print("  team prior-season reference + join ok (Man City matched, Coventry correctly NaN)")
+
+
+def test_parse_manager_squad():
+    """parse_manager_squad() is the join between a real manager's public
+    FPL picks and our own player table -- can't hit the live /entry/
+    endpoint from this sandbox (see module docstring), but the join logic
+    itself is pure and fully testable against a synthetic picks payload."""
+    players = fpl_client.load_players_df(SAMPLE_BOOTSTRAP)
+
+    picks_payload = {
+        "picks": [
+            {"element": 1, "position": 1, "is_captain": False, "is_vice_captain": True, "multiplier": 1},
+            {"element": 2, "position": 2, "is_captain": True, "is_vice_captain": False, "multiplier": 2},
+        ],
+        "entry_history": {"points": 50, "bank": 5, "value": 1000},
+    }
+    squad = fpl_client.parse_manager_squad(picks_payload, players)
+    assert len(squad) == 2
+    # Sorted by squad_position -- element 1 (GK slot) first.
+    assert squad.iloc[0]["web_name"] == "Haaland"
+    assert squad.iloc[0]["is_vice_captain"] == True  # noqa: E712
+    assert squad.iloc[1]["web_name"] == "Wright"
+    assert squad.iloc[1]["is_captain"] == True  # noqa: E712
+    assert squad.iloc[1]["multiplier"] == 2
+
+    # A pick that doesn't match any id in our player table (stale cache,
+    # or a player who's since left the league) must raise loudly, not
+    # silently drop a squad member.
+    bad_payload = {
+        "picks": [{"element": 999999, "position": 1, "is_captain": False,
+                   "is_vice_captain": False, "multiplier": 1}],
+        "entry_history": {},
+    }
+    try:
+        fpl_client.parse_manager_squad(bad_payload, players)
+        raise AssertionError("expected a ValueError for an unmatched pick")
+    except ValueError as exc:
+        assert "999999" in str(exc)
+
+    print("  parse_manager_squad ok (2 picks joined in position order, unmatched pick raises)")
+
+
 def run_tests():
     warnings = fpl_client.validate_schema(SAMPLE_BOOTSTRAP, SAMPLE_FIXTURES)
     # We expect no warnings for required fields on this synthetic payload.
@@ -218,6 +301,8 @@ def run_tests():
 
     test_prior_season_reference_shape()
     test_prior_season_join()
+    test_team_prior_season_reference_and_join()
+    test_parse_manager_squad()
 
     print("All parsing tests passed.")
 

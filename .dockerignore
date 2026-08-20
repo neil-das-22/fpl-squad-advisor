@@ -1,0 +1,12 @@
+.git
+.gitignore
+.DS_Store
+__pycache__/
+*.pyc
+.env
+tests/
+backtest/
+docs/
+PROJECT_PLAN.md
+data/processed/*.csv
+!data/processed/research_overrides_gw1.csv

@@ -330,6 +330,67 @@ def test_xg_xa_fall_back_to_prior_season():
           f"flat prior {flat['expected_goals']:.2f} vs blank {poor['expected_goals']:.2f})")
 
 
+def test_prior_season_fallback_expires_after_current_season_sample():
+    """Per Neil: 'once the season starts and there is enough of a sample
+    size (3-4 gameweeks) I want the model to exclusively use data from the
+    current season.' Before this, a player with zero current-season
+    minutes kept quoting last season's xG/xA/DefCon rate forever, no
+    matter how far the season got -- only start probability had a
+    gameweek cutoff (NEVER_APPEARED_MATCHES_THRESHOLD). This checks both
+    fallbacks now expire on the same threshold
+    (CURRENT_SEASON_SAMPLE_THRESHOLD, same constant, same number)."""
+    fx = _fixture(1)
+    mci, cov = _team("Man City"), _team("Coventry")
+
+    elite_still_no_minutes = _player("Karlsson").copy()
+    elite_still_no_minutes["minutes"] = 0
+    elite_still_no_minutes["clearances_blocks_interceptions"] = 0
+    elite_still_no_minutes["tackles"] = 0
+    elite_still_no_minutes["recoveries"] = 0
+    elite_still_no_minutes["minutes_prev_season"] = 3000
+    elite_still_no_minutes["starts_prev_season"] = 34
+    elite_still_no_minutes["expected_goals_prev_season"] = 20.0
+    elite_still_no_minutes["expected_assists_prev_season"] = 5.0
+    elite_still_no_minutes["clearances_blocks_interceptions_prev_season"] = 380
+    elite_still_no_minutes["tackles_prev_season"] = 100
+    elite_still_no_minutes["recoveries_prev_season"] = 200
+
+    # Early season (below the threshold): prior season still usable, exactly
+    # as before this change.
+    early = m.calculate_xp(elite_still_no_minutes, fx, cov, mci,
+                           matches_played=m.CURRENT_SEASON_SAMPLE_THRESHOLD - 1)
+    assert "xg_xa_from_prior_season" in early["flags"]
+    assert "defcon_prior_season_rate" in early["flags"]
+    assert "xg_xa_prior_season_expired" not in early["flags"]
+    assert "defcon_prior_season_expired" not in early["flags"]
+
+    # At/past the threshold, STILL zero current-season minutes: prior season
+    # is no longer consulted for either xG/xA or DefCon -- falls through to
+    # the flat positional prior, same as a player with no history at all.
+    late = m.calculate_xp(elite_still_no_minutes, fx, cov, mci,
+                          matches_played=m.CURRENT_SEASON_SAMPLE_THRESHOLD)
+    assert "xg_xa_from_prior_season" not in late["flags"]
+    assert "xg_xa_prior_season_expired" in late["flags"]
+    assert "defcon_prior_season_rate" not in late["flags"]
+    assert "defcon_prior_season_expired" in late["flags"]
+    # This should also collapse his expected output back toward the flat
+    # prior -- a real, elite prior-season rate should no longer be inflating
+    # his numbers once he's a confirmed non-player this season.
+    assert late["expected_goals"] < early["expected_goals"]
+    assert late["defcon_prob"] < early["defcon_prob"]
+
+    # matches_played=None (the original pre-season no-data case) must be
+    # unaffected -- that's a different meaning ("we don't know how far the
+    # season is"), not "the season is definitely past the threshold".
+    unknown = m.calculate_xp(elite_still_no_minutes, fx, cov, mci,
+                             matches_played=None)
+    assert "xg_xa_from_prior_season" in unknown["flags"]
+    assert "defcon_prior_season_rate" in unknown["flags"]
+
+    print(f"  prior-season fallback expiry ok (early xG {early['expected_goals']:.3f} > "
+          f"late xG {late['expected_goals']:.3f} once matches_played hits the threshold)")
+
+
 # ---------------------------------------------------------------------------
 # Fixture model
 # ---------------------------------------------------------------------------
@@ -622,6 +683,7 @@ def run_tests():
     test_start_probability_from_prior_season()
     test_defcon_prefers_prior_season_rate_over_flat_prior()
     test_xg_xa_fall_back_to_prior_season()
+    test_prior_season_fallback_expires_after_current_season_sample()
     test_fixture_context_directionality()
     test_calculate_xp_components_and_rules()
     test_goal_points_scale_by_position()
