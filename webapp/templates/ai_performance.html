@@ -45,10 +45,10 @@
     <div class="stat-value">{{ data['free_transfers'] }}</div>
     <div class="stat-label">Free transfer{% if data['free_transfers'] != 1 %}s{% end %} banked</div>
   </div>
-  {% if data['upcoming_projected_points'] is not None %}
+  {% for g in data['gw_breakdown'] %}
   <div class="stat-card">
-    <div class="stat-value" style="color: var(--accent-bright);">{{ '%.1f' % data['upcoming_projected_points'] }}</div>
-    <div class="stat-label">Projected xP, GW{{ data['current_gw'] }}{% if data['gw_finished'] %} (played){% end %}</div>
+    <div class="stat-value" style="color: var(--accent-bright);">{{ '%.1f' % g['total'] }}</div>
+    <div class="stat-label">Projected xP, GW{{ g['gameweek'] }}</div>
   </div>
   {% end %}
   {% if data['accuracy'] %}

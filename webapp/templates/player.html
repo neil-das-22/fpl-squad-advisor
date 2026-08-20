@@ -130,11 +130,16 @@
     <div class="section-header">
       <h2>Alternatives in a similar price range</h2>
     </div>
-    <p>Same position, priced up to <span id="altDeltaLabel">&pound;{{ '%.1f' % 1.0 }}m</span> more than
-      {{ p['web_name'] }}'s own &pound;{{ '%.1f' % p['price_m'] }}m -- ranked by projected points, GW{{ gw_start }}&ndash;{{ gw_end }}.</p>
-    <div style="display:flex; align-items:center; gap:10px; margin:-8px 0 14px; max-width:280px;">
-      <label for="altDeltaInput" style="font-size:13px; color:var(--text-tertiary); white-space:nowrap;">Max &pound;m over price</label>
-      <input type="number" id="altDeltaInput" min="0" max="5" step="0.5" value="1.0">
+    <p>Same position as {{ p['web_name'] }} (&pound;{{ '%.1f' % p['price_m'] }}m) -- ranked by projected points, GW{{ gw_start }}&ndash;{{ gw_end }}.</p>
+    <div style="display:flex; align-items:center; gap:20px; flex-wrap:wrap; margin:-8px 0 14px;">
+      <div style="display:flex; align-items:center; gap:8px;">
+        <label for="altUnderInput" style="font-size:13px; color:var(--text-tertiary); white-space:nowrap;">Under by, &pound;m</label>
+        <input type="number" id="altUnderInput" min="0" max="10" step="0.5" placeholder="any" style="width:80px;">
+      </div>
+      <div style="display:flex; align-items:center; gap:8px;">
+        <label for="altOverInput" style="font-size:13px; color:var(--text-tertiary); white-space:nowrap;">Over by, &pound;m</label>
+        <input type="number" id="altOverInput" min="0" max="10" step="0.5" value="1.0" style="width:80px;">
+      </div>
     </div>
     <div class="click-hint"><span class="click-hint-icon">&#128070;</span> Click any alternative to see their full profile</div>
     <div class="card">
@@ -255,14 +260,17 @@ new Chart(gwCtx, {
 
 // --- Price-range alternatives -------------------------------------------
 
-function loadAlternatives(maxDelta) {
+function loadAlternatives(maxDelta, minDelta) {
   const list = document.getElementById('altList');
   list.innerHTML = '<p style="margin:0; color:var(--text-tertiary);">Loading&hellip;</p>';
-  fetch('/api/player/{{ p["id"] }}/alternatives.json?max_delta=' + encodeURIComponent(maxDelta))
+  let url = '/api/player/{{ p["id"] }}/alternatives.json?max_delta=' + encodeURIComponent(maxDelta);
+  if (minDelta !== null && minDelta !== undefined && minDelta !== '') {
+    url += '&min_delta=' + encodeURIComponent(minDelta);
+  }
+  fetch(url)
     .then(res => res.json())
     .then(data => {
       const alts = data.alternatives || [];
-      document.getElementById('altDeltaLabel').textContent = '£' + Number(data.max_delta).toFixed(1) + 'm';
       if (!alts.length) {
         list.innerHTML = '<p style="margin:0;">No alternatives found in that price range.</p>';
         return;
@@ -285,13 +293,28 @@ function loadAlternatives(maxDelta) {
     .catch(() => { list.innerHTML = '<p style="margin:0;">Couldn\'t load alternatives right now.</p>'; });
 }
 
-loadAlternatives(1.0);
-document.getElementById('altDeltaInput').addEventListener('change', (e) => {
-  let v = parseFloat(e.target.value);
-  if (isNaN(v) || v < 0) v = 0;
-  if (v > 5) v = 5;
-  e.target.value = v;
-  loadAlternatives(v);
+function currentDeltas() {
+  const underEl = document.getElementById('altUnderInput');
+  const overEl = document.getElementById('altOverInput');
+  let over = parseFloat(overEl.value);
+  if (isNaN(over) || over < 0) over = 0;
+  if (over > 10) over = 10;
+  overEl.value = over;
+  let under = underEl.value.trim() === '' ? null : parseFloat(underEl.value);
+  if (under !== null) {
+    if (isNaN(under) || under < 0) under = 0;
+    if (under > 10) under = 10;
+    underEl.value = under;
+  }
+  return { over, under };
+}
+
+loadAlternatives(1.0, null);
+['altUnderInput', 'altOverInput'].forEach((id) => {
+  document.getElementById(id).addEventListener('change', () => {
+    const { over, under } = currentDeltas();
+    loadAlternatives(over, under);
+  });
 });
 {% end %}
 </script>

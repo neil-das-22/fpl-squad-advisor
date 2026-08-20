@@ -97,6 +97,9 @@ function showResults(query) {
   const selectedIds = new Set(selected.map(p => p.id));
   let matches = ALL_PLAYERS.filter(p => !selectedIds.has(p.id) && (!lockPos || p.position === lockPos));
   if (q) matches = matches.filter(p => stripAccents(p.web_name).includes(q));
+  // Most-picked first, not alphabetical -- easier to spot the player
+  // you're looking for when you're not sure of the exact spelling yet.
+  matches = matches.slice().sort((a, b) => num(b.selected_by_percent) - num(a.selected_by_percent));
   matches = matches.slice(0, 8);
 
   if (matches.length === 0) {
@@ -202,9 +205,10 @@ function renderSingle(id) {
         '<div class="detail-photo-wrap"><div class="detail-photo-clip">' +
           '<img class="detail-photo" src="' + (p.photo_url || '') + '" alt="' + p.web_name + '" onerror="this.onerror=null; this.style.transform=\'none\';"></div></div>' +
         '<div>' +
-          '<div class="eyebrow"><span class="pos-tag pos-' + p.position + '">' + p.position + '</span>&nbsp;' + p.team_name + '</div>' +
-          '<h1 style="margin-bottom:4px;">' + p.web_name + '</h1>' +
-          '<p class="lede" style="margin:0;">&pound;' + num(p.price_m).toFixed(1) + 'm</p>' +
+          '<div class="eyebrow">' + p.team_name + '</div>' +
+          '<h1 style="margin-bottom:8px;">' + p.web_name + '</h1>' +
+          '<span class="pos-callout pos-' + p.position + '">' + p.position + '</span>' +
+          '<p class="lede" style="margin:8px 0 0;">&pound;' + num(p.price_m).toFixed(1) + 'm</p>' +
         '</div>' +
       '</div>' +
       '<div class="card-grid" style="margin-bottom:20px;">' +
@@ -230,7 +234,8 @@ function statCardHTML(p, color) {
         '<img class="mini-photo" src="' + (p.photo_url || '') + '" alt="' + p.web_name + '" onerror="this.style.display=\'none\'">' +
       '</div></div>' +
       '<div><div style="font-weight:700; color:var(--text-primary);">' + p.web_name + '</div>' +
-      '<div style="font-size:12px; color:var(--text-tertiary);">' + p.team_name + ' &middot; ' + p.position + '</div></div>' +
+      '<div style="font-size:12px; color:var(--text-tertiary); margin-bottom:6px;">' + p.team_name + '</div>' +
+      '<span class="pos-callout pos-' + p.position + '">' + p.position + '</span></div>' +
     '</a>' +
     '<div class="stat-value positive">' + num(p.xp).toFixed(1) + ' xP</div>' +
     '<div class="stat-label">&pound;' + num(p.price_m).toFixed(1) + 'm &middot; ' + (p.total_points_prev_season != null ? p.total_points_prev_season : 0) + ' pts last season</div>' +

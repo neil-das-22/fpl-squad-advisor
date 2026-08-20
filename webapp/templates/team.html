@@ -25,21 +25,16 @@
     <div class="eyebrow">Gameweeks {{ gw_start }}&ndash;{{ gw_end }}</div>
     <h1>{{ team_name }}</h1>
     <p class="lede">{{ manager_name }}{% if entry_id %} &middot; Team ID {{ entry_id }}{% end %}</p>
+    <p class="hint" style="margin-top:-8px;"><a href="/team-clear">Look up a different team &rarr;</a></p>
   </div>
 
   <div class="card-grid">
+    {% for g in gw_breakdown %}
     <div class="stat-card">
-      <div class="stat-value positive">{{ '%.1f' % total_xp }}</div>
-      <div class="stat-label">Projected points, GW{{ gw_start }}&ndash;{{ gw_end }}</div>
+      <div class="stat-value positive">{{ '%.1f' % g['total'] }}</div>
+      <div class="stat-label">Projected xP, GW{{ g['gameweek'] }}</div>
     </div>
-    <div class="stat-card">
-      <div class="stat-value">{{ '%.1f' % base_total }}</div>
-      <div class="stat-label">Starting XI, before captaincy</div>
-    </div>
-    <div class="stat-card">
-      <div class="stat-value" style="color: var(--gold);">+{{ '%.1f' % captain_extra }}</div>
-      <div class="stat-label">Captain bonus</div>
-    </div>
+    {% end %}
   </div>
 
   <div class="section">

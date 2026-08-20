@@ -543,12 +543,15 @@ def _upcoming_fixtures_with_history(team_name: str, player_code, n: int = 4) -> 
 _DEFAULT_ALT_PRICE_DELTA = 1.0  # default "similar price range" ceiling, in £m over the player's own price
 
 
-def _price_alternatives(player_id: int, max_delta: float = _DEFAULT_ALT_PRICE_DELTA, n: int = 8) -> list[dict]:
-    """Same-position players (excluding this one) priced at or below
-    `player_id`'s own price plus `max_delta` -- covers both "slightly
-    pricier upgrade" and "cheaper-but-comparable" alternatives in one
-    list, ranked by projected points. `max_delta` is a UI-adjustable
-    threshold (see player.html), not a fixed rule."""
+def _price_alternatives(player_id: int, max_delta: float = _DEFAULT_ALT_PRICE_DELTA,
+                        min_delta: float | None = None, n: int = 8) -> list[dict]:
+    """Same-position players (excluding this one) priced within
+    `player_id`'s own price minus `min_delta` and plus `max_delta` --
+    covers both "slightly pricier upgrade" and "cheaper-but-comparable"
+    alternatives in one list, ranked by projected points. Both deltas are
+    UI-adjustable thresholds (see player.html), not fixed rules; leaving
+    `min_delta` unset (the historical default) means no lower-price limit
+    at all, i.e. any cheaper player is fair game."""
     pool = POOL.buyable()
     row = pool[pool["id"] == player_id]
     if row.empty:
@@ -557,6 +560,8 @@ def _price_alternatives(player_id: int, max_delta: float = _DEFAULT_ALT_PRICE_DE
     price = float(row.iloc[0]["price_m"])
     candidates = pool[(pool["position"] == position) & (pool["id"] != player_id)
                       & (pool["price_m"] <= price + max_delta)]
+    if min_delta is not None:
+        candidates = candidates[candidates["price_m"] >= price - min_delta]
     candidates = candidates.sort_values("xp", ascending=False).head(n)
     cols = [c for c in ["id", "web_name", "team_name", "position", "price_m",
                         "photo_url", "badge_url", "xp"]
@@ -1024,17 +1029,114 @@ def render(handler: tornado.web.RequestHandler, template: str, **kwargs) -> None
 # Handlers
 # ---------------------------------------------------------------------------
 
+# Cookie name used to remember whichever squad the user last looked up
+# (by team ID or by photo import) for the rest of the browser session --
+# see _remember_entry_squad / _remember_photo_squad / _forget_squad below.
+_SQUAD_COOKIE = "fpl_squad"
+
+
+def _remember_entry_squad(handler, entry_id: int) -> None:
+    """Called after a successful team-ID lookup so navigating to a
+    different page and back to Home shows this squad again instead of
+    the blank lookup form. Session cookie (expires_days=None -- no
+    Expires header at all) so it clears itself when the browser closes,
+    rather than sticking around indefinitely like a normal cookie would."""
+    handler.set_secure_cookie(_SQUAD_COOKIE,
+                              json.dumps({"type": "entry", "entry_id": entry_id}),
+                              expires_days=None)
+
+
+def _remember_photo_squad(handler, matched_ids: list[int]) -> None:
+    """Same idea as _remember_entry_squad, but for a photo import -- there's
+    no URL to redirect back to (POST-only), so what's remembered is the
+    list of matched player IDs themselves, replayed through the same
+    starting-XI logic on the next Home visit."""
+    handler.set_secure_cookie(_SQUAD_COOKIE,
+                              json.dumps({"type": "photo", "ids": list(matched_ids)}),
+                              expires_days=None)
+
+
+def _forget_squad(handler) -> None:
+    handler.clear_cookie(_SQUAD_COOKIE)
+
+
+def _render_photo_squad(handler, matched_ids: list[int], note: str,
+                        render_error_on_failure: bool = True) -> bool:
+    """Shared by TeamPhotoHandler (fresh upload) and HomeHandler (replaying
+    a remembered photo-import squad) -- builds the strongest legal XI from
+    a list of matched player IDs and renders team.html. Returns False if
+    that's no longer possible, e.g. a remembered player has since been
+    removed from the pool. `render_error_on_failure` controls whether this
+    function renders an error page itself on that failure (right for a
+    fresh upload) or leaves the response untouched so the caller can fall
+    back to something else instead (right for HomeHandler replaying a
+    stale remembered squad -- it falls back to the normal lookup form,
+    and calling render() here too would double-render the same request)."""
+    squad_df = POOL.players[POOL.players["id"].isin(matched_ids)].copy()
+    try:
+        xi_result = squad_optimizer.pick_starting_xi(squad_df)
+    except squad_optimizer.OptimizerError as exc:
+        if render_error_on_failure:
+            render(handler, "team.html",
+                  error=f"Couldn't rebuild your remembered squad ({exc}). "
+                        "Look it up again with your team ID or a fresh photo.")
+        return False
+
+    squad_df = pd.concat([xi_result["starting_xi"], xi_result["bench"]], ignore_index=True)
+    squad_df["is_captain"] = squad_df["id"] == xi_result["captain"]["id"]
+    squad_df["is_vice_captain"] = squad_df["id"] == xi_result["vice_captain"]["id"]
+    squad_df["multiplier"] = squad_df["is_captain"].map({True: 2, False: 1})
+    squad_df["squad_position"] = range(1, len(squad_df) + 1)
+
+    _render_squad_page(handler, squad_df, "Your team", "Imported from photo",
+                       demo_mode=False, entry_id=None, note=note)
+    return True
+
+
 class HomeHandler(tornado.web.RequestHandler):
     """Team-ID lookup + top picks -- reached at /home (linked from the nav
     and from the Overview page), one step in from the actual "/" landing
-    page now that Overview owns that slot."""
+    page now that Overview owns that slot.
+
+    If a squad was already looked up this session (see _remember_*_squad),
+    this shows that squad again instead of the blank form -- otherwise
+    every nav click back to Home would force a re-lookup."""
 
     def get(self) -> None:
+        raw = self.get_secure_cookie(_SQUAD_COOKIE)
+        if raw:
+            try:
+                remembered = json.loads(raw.decode("utf-8"))
+            except (ValueError, UnicodeDecodeError):
+                remembered = None
+            if remembered and remembered.get("type") == "entry":
+                self.redirect(f"/team/{int(remembered['entry_id'])}")
+                return
+            if remembered and remembered.get("type") == "photo":
+                note = ("Remembered from your earlier photo import this session -- "
+                        "still can't tell your real bench order or captain, so this is "
+                        "still the strongest legal XI from the players we recognized.")
+                if _render_photo_squad(self, remembered.get("ids", []), note,
+                                       render_error_on_failure=False):
+                    return
+                # fell through: remembered squad no longer valid, clear it
+                # and fall back to the normal lookup form below.
+                _forget_squad(self)
+
         top_picks = (POOL.buyable()
                     .sort_values("xp", ascending=False)
                     .head(6)[["web_name", "team_name", "position", "price_m", "xp"]]
                     .to_dict("records"))
         render(self, "home.html", top_picks=top_picks, error=None)
+
+
+class SquadClearHandler(tornado.web.RequestHandler):
+    """Lets the user explicitly look up a different team instead of being
+    stuck on their remembered squad for the rest of the session."""
+
+    def get(self) -> None:
+        _forget_squad(self)
+        self.redirect("/home")
 
 
 class OverviewHandler(tornado.web.RequestHandler):
@@ -1045,6 +1147,28 @@ class OverviewHandler(tornado.web.RequestHandler):
 
     def get(self) -> None:
         render(self, "overview.html")
+
+
+def _gw_by_gw_totals(starters: pd.DataFrame, captain_row: pd.DataFrame,
+                     gw_start: int, n_gw: int = MULTI_GW_LENGTH) -> list[dict]:
+    """Starting-XI-plus-captain-bonus projected total for each of the next
+    `n_gw` gameweeks separately, instead of one number summed across all of
+    them -- a single cumulative "242.3 over GW1-4" figure doesn't tell you
+    whether that's flat contribution or front/back-loaded around a good or
+    bad run of fixtures, which per-gameweek numbers do at a glance."""
+    totals = []
+    for i in range(n_gw):
+        col = f"xp_gw{i + 1}"
+        if col not in starters.columns:
+            break
+        base = float(pd.to_numeric(starters[col], errors="coerce").fillna(0.0).sum())
+        captain_extra = 0.0
+        if not captain_row.empty:
+            captain_gw_xp = float(pd.to_numeric(captain_row[col], errors="coerce").fillna(0.0).iloc[0])
+            multiplier = float(captain_row["multiplier"].iloc[0]) if "multiplier" in captain_row.columns else 2.0
+            captain_extra = captain_gw_xp * (multiplier - 1)
+        totals.append({"gameweek": gw_start + i, "total": round(base + captain_extra, 1)})
+    return totals
 
 
 def _render_squad_page(handler, squad_df: pd.DataFrame, manager_name: str, team_name: str,
@@ -1069,6 +1193,7 @@ def _render_squad_page(handler, squad_df: pd.DataFrame, manager_name: str, team_
     # the "extra" on top of his own already-counted xp is (multiplier - 1).
     captain_extra = float((captain_row["xp"] * (captain_row["multiplier"] - 1)).sum())
     total_xp = base_total + captain_extra
+    gw_breakdown = _gw_by_gw_totals(starters, captain_row, MULTI_GW_START)
 
     squad_ids = set(squad_df["id"].tolist())
 
@@ -1113,6 +1238,7 @@ def _render_squad_page(handler, squad_df: pd.DataFrame, manager_name: str, team_
           manager_name=manager_name, team_name=team_name, entry_id=entry_id,
           pitch_rows=pitch_rows, bench=bench.to_dict("records"),
           total_xp=total_xp, captain_extra=captain_extra, base_total=base_total,
+          gw_breakdown=gw_breakdown,
           weakest=weakest, transfer_rec=transfer_rec,
           gw_start=MULTI_GW_START, gw_end=MULTI_GW_START + MULTI_GW_LENGTH - 1)
 
@@ -1196,6 +1322,9 @@ class TeamHandler(tornado.web.RequestHandler):
             squad_df["squad_position"] = range(1, len(squad_df) + 1)
             lookup_error = _friendly_lookup_error(exc, entry_id)
 
+        if not demo_mode:
+            _remember_entry_squad(self, entry_id)
+
         _render_squad_page(self, squad_df, manager_name, team_name,
                            demo_mode=demo_mode, entry_id=entry_id, bank=bank,
                            note=lookup_error)
@@ -1251,9 +1380,12 @@ class TeamPhotoHandler(tornado.web.RequestHandler):
                          "\"My Team\" pitch view showing all 15 names, or use your team ID instead."))
             return
 
+        # Validate the XI is legally formable *before* remembering it --
+        # matched_ids alone isn't a reliable enough signal to persist if
+        # this fails (see _render_photo_squad's own error path).
         squad_df = POOL.players[POOL.players["id"].isin(matched_ids)].copy()
         try:
-            xi_result = squad_optimizer.pick_starting_xi(squad_df)
+            squad_optimizer.pick_starting_xi(squad_df)
         except squad_optimizer.OptimizerError as exc:
             recognized = ", ".join(sorted(squad_df["web_name"].tolist()))
             render(self, "team.html",
@@ -1262,20 +1394,14 @@ class TeamPhotoHandler(tornado.web.RequestHandler):
                          "-- try a clearer photo, or use your team ID instead."))
             return
 
-        squad_df = pd.concat([xi_result["starting_xi"], xi_result["bench"]], ignore_index=True)
-        squad_df["is_captain"] = squad_df["id"] == xi_result["captain"]["id"]
-        squad_df["is_vice_captain"] = squad_df["id"] == xi_result["vice_captain"]["id"]
-        squad_df["multiplier"] = squad_df["is_captain"].map({True: 2, False: 1})
-        squad_df["squad_position"] = range(1, len(squad_df) + 1)
-
         note = (
             f"Built from your photo -- recognized {len(matched_ids)} of 15 players. A static image "
             "can't tell us your real bench order or who you actually captained, so this is the "
             "strongest legal XI and captain from the players we found. Double-check it matches "
             "your real picks."
         )
-        _render_squad_page(self, squad_df, "Your team", "Imported from photo",
-                           demo_mode=False, entry_id=None, note=note)
+        _remember_photo_squad(self, matched_ids)
+        _render_photo_squad(self, matched_ids, note)
 
 
 class PlayersHandler(tornado.web.RequestHandler):
@@ -1287,8 +1413,24 @@ class PlayersHandler(tornado.web.RequestHandler):
 
     def get(self) -> None:
         cols = ["id", "web_name", "team_name", "team_short", "position",
-                "price_m", "photo_url", "badge_url"]
-        pool = POOL.buyable().sort_values(["position", "web_name"])
+                "price_m", "photo_url", "badge_url", "selected_by_percent"]
+        # selected_by_percent lives on raw_players, not the xP-model pool
+        # (see player_detail()'s own comment on the same split) -- bring it
+        # over by id so the search dropdown can sort by it.
+        pool = POOL.buyable()
+        if "selected_by_percent" not in pool.columns and "selected_by_percent" in POOL.raw_players.columns:
+            pool = pool.merge(POOL.raw_players[["id", "selected_by_percent"]], on="id", how="left")
+        # The FPL API serves this as a numeric-looking STRING (e.g. "69.7"),
+        # which sorts lexicographically ("9.7" > "10.5") if left alone --
+        # coerce to a real float both for a correct sort and so the value
+        # that ships in ALL_PLAYERS is a JSON number, not a string.
+        pool["selected_by_percent"] = pd.to_numeric(
+            pool.get("selected_by_percent"), errors="coerce").fillna(0.0)
+        # Sorted by ownership descending (not alphabetically) so the search
+        # dropdown's default/unfiltered list leads with recognizable,
+        # widely-owned names -- much more useful to scan than an A-Z list
+        # when you're not sure of exact spelling yet.
+        pool = pool.sort_values("selected_by_percent", ascending=False)
         cols = [c for c in cols if c in pool.columns]
         render(self, "players.html", players=pool[cols].to_dict("records"))
 
@@ -1345,8 +1487,9 @@ class PlayerJSONHandler(tornado.web.RequestHandler):
 
 class AlternativesJSONHandler(tornado.web.RequestHandler):
     """Backs the "Alternatives in a similar price range" panel on the
-    player-detail page -- same-position players priced up to a
-    (user-adjustable) delta above this one, ranked by projected points."""
+    player-detail page -- same-position players priced within a
+    (user-adjustable) amount over and/or under this one, ranked by
+    projected points."""
 
     def get(self, player_id_str: str) -> None:
         try:
@@ -1363,9 +1506,20 @@ class AlternativesJSONHandler(tornado.web.RequestHandler):
             max_delta = _DEFAULT_ALT_PRICE_DELTA
         max_delta = max(0.0, min(max_delta, 10.0))
 
-        alternatives = _price_alternatives(player_id, max_delta=max_delta)
+        # min_delta is optional -- absent/blank means "no lower-price limit",
+        # matching the original (pre-"under" option) behavior.
+        min_delta_raw = self.get_argument("min_delta", "")
+        min_delta = None
+        if min_delta_raw.strip():
+            try:
+                min_delta = max(0.0, min(float(min_delta_raw), 10.0))
+            except ValueError:
+                min_delta = None
+
+        alternatives = _price_alternatives(player_id, max_delta=max_delta, min_delta=min_delta)
         self.set_header("Content-Type", "application/json")
-        self.write(json.dumps({"max_delta": max_delta, "alternatives": alternatives}, default=str))
+        self.write(json.dumps({"max_delta": max_delta, "min_delta": min_delta,
+                               "alternatives": alternatives}, default=str))
 
 
 def _build_ai_performance_context(log: dict, full_pool_df: pd.DataFrame, bootstrap: dict) -> dict:
@@ -1382,6 +1536,9 @@ def _build_ai_performance_context(log: dict, full_pool_df: pd.DataFrame, bootstr
     squad_df = full_pool_df[full_pool_df["id"].isin(current_entry["squad_ids"])].copy()
     squad_df["is_captain"] = squad_df["id"] == current_entry["captain_id"]
     squad_df["is_vice_captain"] = squad_df["id"] == current_entry["vice_captain_id"]
+    # Triple Captain triples the captain's points instead of doubling them --
+    # only relevant if that's the chip actually active this gameweek.
+    squad_df["multiplier"] = 3 if current_entry.get("chip_played") == "triple_captain" else 2
 
     starters = squad_df[squad_df["id"].isin(current_entry["starting_xi_ids"])]
     bench_order = current_entry["bench_order_ids"]
@@ -1430,6 +1587,13 @@ def _build_ai_performance_context(log: dict, full_pool_df: pd.DataFrame, bootstr
             "delta": last["delta"],
         }
 
+    captain_row = starters[starters["is_captain"]]
+    # Labeled from MULTI_GW_START, not current_gw -- the xp_gw1..xp_gwN
+    # columns on full_pool_df are the model's rolling projection window
+    # anchored to MULTI_GW_START, so that's what they actually represent
+    # regardless of which gameweek the AI manager's log is currently on.
+    gw_breakdown = _gw_by_gw_totals(starters, captain_row, MULTI_GW_START)
+
     half = chip_strategy.current_half(current_gw)
     chips_used_this_half = set(log["chips_used"].get(half, []))
     status = chip_strategy.chip_status(current_gw, chips_used_this_half)
@@ -1450,6 +1614,7 @@ def _build_ai_performance_context(log: dict, full_pool_df: pd.DataFrame, bootstr
         "bank": current_entry.get("bank_after", 0.0),
         "free_transfers": current_entry.get("free_transfers_after"),
         "upcoming_projected_points": current_entry.get("projected_points"),
+        "gw_breakdown": gw_breakdown,
         "accuracy": accuracy,
         "gw_log": list(reversed(gw_log)),
         "chip_status": status,
@@ -1597,6 +1762,7 @@ def make_app() -> tornado.web.Application:
             (r"/", OverviewHandler),
             (r"/overview", tornado.web.RedirectHandler, {"url": "/"}),
             (r"/home", HomeHandler),
+            (r"/team-clear", SquadClearHandler),
             (r"/team/([0-9]+)", TeamHandler),
             (r"/team-photo", TeamPhotoHandler),
             (r"/team-lookup", TeamLookupRedirectHandler),
@@ -1613,6 +1779,13 @@ def make_app() -> tornado.web.Application:
         template_path=os.path.join(WEBAPP_ROOT, "templates"),
         static_path=os.path.join(WEBAPP_ROOT, "static"),
         debug=True,
+        # Fixed (not randomly generated) so remembered-squad cookies survive
+        # a restart -- Render's free tier restarts the process on every
+        # deploy and after idle spin-down, and a random secret would silently
+        # invalidate every visitor's session cookie each time that happens.
+        # It only signs a session cookie holding a team ID or a list of
+        # player IDs, nothing sensitive, so a fixed value here is fine.
+        cookie_secret="fpl-squad-advisor-session-cookie-v1",
     )
 
 

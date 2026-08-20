@@ -448,6 +448,24 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
 .pos-MID { background: rgba(52, 211, 153, 0.15); color: var(--pos-mid); }
 .pos-FWD { background: rgba(251, 113, 133, 0.15); color: var(--pos-fwd); }
 
+/* Bigger, solid-fill version of .pos-tag for moments where the position
+   needs to be unmissable at a glance -- e.g. right after picking a player
+   on the search page, before you've read anything else on screen. */
+.pos-callout {
+  display: inline-block;
+  font-size: 13px;
+  font-weight: 800;
+  padding: 5px 12px;
+  border-radius: var(--radius-sm);
+  letter-spacing: 0.03em;
+  color: var(--bg);
+}
+
+.pos-callout.pos-GKP { background: var(--pos-gkp); }
+.pos-callout.pos-DEF { background: var(--pos-def); }
+.pos-callout.pos-MID { background: var(--pos-mid); }
+.pos-callout.pos-FWD { background: var(--pos-fwd); }
+
 .captain-badge {
   display: inline-flex;
   align-items: center;
