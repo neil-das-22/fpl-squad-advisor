@@ -10,15 +10,8 @@
   </div>
 {% else %}
 
-  {% if demo_mode %}
-  <div class="banner warn">
-    <strong>Showing a demo squad</strong> &mdash; couldn't fetch your real squad for team {{ entry_id }}.
-    This page's logic is real; only the live lookup failed. See below for why.
-  </div>
-  {% end %}
-
-  {% if note %}
-  <div class="banner {% if demo_mode %}warn{% end %}">{{ note }}</div>
+  {% if note and not demo_mode %}
+  <div class="banner">{{ note }}</div>
   {% end %}
 
   <div class="hero" style="padding-top:40px; padding-bottom:24px;">
