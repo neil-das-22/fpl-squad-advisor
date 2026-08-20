@@ -68,6 +68,12 @@ Quantified: forcing Raya in (plus a viable second keeper) costs **4.67 expected 
 
 Squad selection already factors in the next 4 gameweeks' fixture difficulty for every player (not shown per-fixture here to keep this report focused on the squad; the underlying tool — `models/fixture_run.py` — can produce the full gameweek-by-gameweek breakdown for any player or team on request). Best individual GW1 fixtures on the board: **Arsenal vs Coventry** and **Man City vs Bournemouth**, both strong home favorites against weaker opposition. **Newcastle vs Liverpool** is the marquee toss-up of the round.
 
+## Addendum (post-report): Shaw swapped for Cash on the bench
+
+Made after this report was originally written, so the squad table and bench line above are left as the historical snapshot rather than rewritten — this is the same "one human judgment call, clearly flagged" pattern as the Haaland decision, not a model output.
+
+Neil's call: Man Utd are reportedly searching for a new left-back, and Shaw (£4.5m, DEF, bench slot 1) is a real risk of losing his starting spot inside GW1-4 if that signing lands before or during the window — nothing in the live data reflects this yet (his `status` is still "available," no news flag), since it's a transfer-market read, not a stats signal. Swapped for **Cash** (Aston Villa, £4.5m, DEF) — same price (no budget/bank impact), no existing exposure to Aston Villa in the squad, and the model's own numbers back it as a reasonable swap on merit too (11.88 cumulative xP over GW1-4, third-highest among sub-£4.6m DEFs outside the clubs already at their 3-player cap). Bench order unchanged otherwise: 1. Cash (DEF) 2. Amad (MID) 3. Kayode (DEF) 4. Dubravka (GKP).
+
 ## Chip strategy
 
 **Hold everything.** Wildcard and Free Hit are mechanically blocked in GW1 (you can't wildcard a squad you haven't picked). Bench Boost and Triple Captain are technically usable but there's no signal yet to justify burning one.

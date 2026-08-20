@@ -66,18 +66,27 @@ GW1_STARTING_XI_WEB_NAMES = [
     "Enzo", "Gakpo", "Szoboszlai", "Schade",
     "Haaland", "Thiago", "João Pedro",
 ]
-GW1_BENCH_WEB_NAMES = ["Shaw", "Amad", "Kayode", "Dubravka"]  # auto-sub order
+GW1_BENCH_WEB_NAMES = ["Cash", "Amad", "Kayode", "Dubravka"]  # auto-sub order
 GW1_CAPTAIN_WEB_NAME = "Haaland"
 # FPL's own web_name for Enzo Fernández is just "Enzo" -- it changed
 # (shortened) since reports/gw1_recommendation.md was written, caught by
 # `_match_by_web_name`'s loud-failure check rather than silently mismatching.
 GW1_VICE_CAPTAIN_WEB_NAME = "Enzo"
+# Bench slot 1 was originally Shaw (Man Utd, £4.5m) per the report -- swapped
+# for Cash (Aston Villa, same £4.5m, no budget impact) as a second human
+# judgment call, made after the report was written: Man Utd were reportedly
+# searching for a new left-back, a real risk to Shaw's starting spot inside
+# GW1-4 that nothing in the live data reflects yet (no news flag, status
+# still "available" -- this is a transfer-market read, not a stats signal).
+# See reports/gw1_recommendation.md's addendum for the full reasoning.
 GW1_NOTE = (
     "Season-opening squad -- the model's own GW1 recommendation "
-    "(reports/gw1_recommendation.md). One human judgment call is baked "
+    "(reports/gw1_recommendation.md). Two human judgment calls are baked "
     "in here: Haaland was force-included over the pure optimizer's pick "
-    "(cost: ~4.65 projected points over GW1-4, per the report). Every "
-    "decision from gameweek 2 onward is the model acting alone."
+    "(cost: ~4.65 projected points over GW1-4, per the report), and Shaw "
+    "was swapped for Cash on the bench over transfer-market risk to his "
+    "starting spot (same price, no data signal yet -- see the report's "
+    "addendum). Every decision from gameweek 2 onward is the model acting alone."
 )
 
 # Chips are mechanically blocked in GW1 (can't Wildcard/Free Hit a squad

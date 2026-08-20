@@ -38,6 +38,9 @@
 </div>
 {% end %}
 
+{% if results %}
+<div class="click-hint"><span class="click-hint-icon">&#128070;</span> Click any player for their full stats, fixtures, and price-range alternatives</div>
+{% end %}
 <div class="card">
   {% if not results %}
   <p style="margin:0;">No players match that position and price. Try raising the price limit.</p>

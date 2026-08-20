@@ -628,10 +628,17 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
   width: 120px;
   text-align: center;
   cursor: pointer;
-  transition: transform var(--transition);
+  border-radius: var(--radius-md);
+  border: 2px solid transparent;
+  padding: 4px;
+  transition: transform var(--transition), border-color var(--transition), box-shadow var(--transition);
 }
 
-.player-card:hover { transform: translateY(-2px); }
+.player-card:hover {
+  transform: translateY(-2px);
+  border-color: var(--accent);
+  box-shadow: 0 4px 14px rgba(139, 124, 246, 0.25);
+}
 
 /* Two layers on purpose: `.player-photo-wrap` is the positioning context
    for the badges below (captain/vice/team-crest) and must NOT clip, since
@@ -801,9 +808,19 @@ canvas { max-width: 100%; }
   gap: 14px;
   padding: 14px 0;
   border-bottom: 1px solid var(--border-subtle);
+  cursor: pointer;
+  transition: background var(--transition);
 }
 
 .finder-card:last-child { border-bottom: none; }
+
+.finder-card:hover {
+  background: var(--accent-dim);
+  border-radius: var(--radius-sm);
+  margin: 0 -10px;
+  padding-left: 10px;
+  padding-right: 10px;
+}
 .finder-card-info { flex: 1; min-width: 0; }
 .finder-card-name { font-weight: 700; font-size: 15px; color: var(--text-primary); }
 .finder-card-meta { font-size: 12px; color: var(--text-tertiary); margin-top: 2px; }
@@ -1076,14 +1093,39 @@ canvas { max-width: 100%; }
 .click-hint {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
-  font-size: 13px;
+  gap: 9px;
+  font-size: 14px;
+  font-weight: 700;
   color: var(--accent-bright);
   background: var(--accent-dim);
-  border: 1px solid transparent;
+  border: 1.5px solid var(--accent);
   border-radius: 999px;
-  padding: 7px 14px;
+  padding: 9px 16px;
   margin: 4px 0 18px;
+}
+
+.click-hint-icon { font-size: 17px; line-height: 1; flex-shrink: 0; }
+
+/* Any element meant to be clicked should say so on hover, not just via a
+   static callout elsewhere on the page -- a visible highlight right under
+   the cursor is what actually teaches people it's interactive. Player
+   cards get their own hover treatment above, right next to their base
+   styles; this covers the other two recurring clickable patterns. */
+a.lb-row {
+  cursor: pointer;
+  transition: background var(--transition);
+}
+
+a.lb-row:hover {
+  background: var(--accent-dim);
+  border-radius: var(--radius-sm);
+  margin: 0 -10px;
+  padding-left: 10px;
+  padding-right: 10px;
+}
+
+.stat-card-clickable {
+  transition: transform 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
 }
 
 /* --- Stat-leaders modal (analytics page) ---------------------------------*/

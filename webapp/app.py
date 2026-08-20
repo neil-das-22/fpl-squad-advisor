@@ -40,6 +40,7 @@ import json
 import os
 import re
 import sys
+import unicodedata
 
 import pandas as pd
 import requests
@@ -54,6 +55,7 @@ import tornado.web
 try:
     import pytesseract
     from PIL import Image as PILImage
+    from PIL import ImageOps as PILImageOps
     _OCR_AVAILABLE = True
 except ImportError:
     _OCR_AVAILABLE = False
@@ -130,43 +132,107 @@ _OCR_IGNORE_WORDS = {
     "gw", "captain", "vice", "total", "bank", "value", "live", "fpl",
     "my", "squad", "sub", "subs", "starting", "formation", "pts", "avg",
     "average", "rank", "deadline", "chip", "wildcard", "menu", "help",
+    "triple", "boost", "free", "hit", "unavailable", "list", "pitch", "play",
 }
 
 
+def _preprocess_for_ocr(image: "PILImage.Image") -> "PILImage.Image":
+    """Upscales, grayscales, and contrast-stretches the image before OCR.
+
+    Tested directly against a real "Pick Team" screenshot from the
+    official FPL app: tesseract's default settings on the raw photo only
+    recognized 10 of 15 names (missed Virgil, Guéhi, Enzo, Szoboszlai,
+    João Pedro entirely -- likely the dense multi-column jersey-card
+    layout confusing its default page-segmentation). Upscaling 2x plus
+    grayscale/autocontrast recovered all 15. Small, cheap operations --
+    worth doing unconditionally rather than trying to detect when a photo
+    "needs" it."""
+    w, h = image.size
+    upscaled = image.resize((w * 2, h * 2), PILImage.LANCZOS)
+    return PILImageOps.autocontrast(PILImageOps.grayscale(upscaled))
+
+
+def _strip_accents(text: str) -> str:
+    """Same accent-normalization idea as players.html's client-side
+    stripAccents() -- decompose accented Latin letters (é, ć, etc.) to
+    their plain-ASCII base rather than deleting them. Applied before the
+    character allowlist below so an accented name like "Guéhi" survives
+    as "Guehi" instead of losing the accented letter to a stray space and
+    fragmenting into two unmatchable pieces ("Gu", "hi")."""
+    return "".join(c for c in unicodedata.normalize("NFKD", text)
+                   if not unicodedata.combining(c))
+
+
 def _clean_ocr_line(line: str) -> str:
+    line = _strip_accents(line)
     line = re.sub(r"[^A-Za-z'.\- ]", " ", line)
     line = re.sub(r"\s+", " ", line).strip()
     return line
+
+
+def _ocr_candidates(raw_text: str, max_ngram: int = 3) -> set[str]:
+    """Turns raw OCR text into short name-sized candidate strings.
+
+    Tesseract's page-segmentation mode matters a lot for a dense grid of
+    player-name labels like the FPL pitch view: the default mode (PSM 3)
+    frequently drops names outright in a multi-column layout, while PSM 6
+    ("single uniform block of text," used in `_preprocess_for_ocr`'s
+    caller) reads all of them but often merges an entire row of 3-4
+    adjacent names onto one OCR line (e.g. "Virgil Lacroix Guéhi"). Taking
+    each whole line as one candidate (the old approach) meant a merged
+    line could never fuzzy-match any single player. Instead, every
+    contiguous run of 1-3 words in a line becomes its own candidate --
+    cheap to generate at this scale (a few dozen words), and correctly
+    recovers both single-word names ("Haaland") and two-word ones ("João
+    Pedro") regardless of how tesseract grouped the line."""
+    candidates: set[str] = set()
+    for line in raw_text.splitlines():
+        cleaned = _clean_ocr_line(line)
+        if not cleaned:
+            continue
+        words = [w for w in cleaned.split(" ")
+                if len(w) >= 2 and w.lower() not in _OCR_IGNORE_WORDS]
+        for n in range(1, max_ngram + 1):
+            for i in range(len(words) - n + 1):
+                gram = " ".join(words[i:i + n])
+                if len(gram) >= 3:
+                    candidates.add(gram)
+    return candidates
 
 
 def _match_players_from_text(raw_text: str, pool_df: pd.DataFrame,
                              min_score: float = 0.74, max_players: int = 15):
     """Fuzzy-matches OCR'd text against `pool_df`'s `web_name` column.
     Returns (matched_ids, {id: best_score}), best matches first, capped at
-    `max_players`. A candidate line only counts once, matched to whichever
+    `max_players`. A candidate only counts once, matched to whichever
     player it looks most like -- this is deliberately conservative (a
     fairly high similarity threshold) since a false match is worse than a
     missed one here: pick_starting_xi() will just report "not enough
-    players" rather than silently building the wrong squad."""
-    candidates: set[str] = set()
-    for line in raw_text.splitlines():
-        cleaned = _clean_ocr_line(line)
-        if len(cleaned) < 3 or cleaned.lower() in _OCR_IGNORE_WORDS:
-            continue
-        candidates.add(cleaned)
+    players" rather than silently building the wrong squad.
 
-    names = pool_df["web_name"].astype(str).tolist()
+    Short candidates (<=4 chars) require a much higher score (0.9, not the
+    usual 0.74) before counting -- difflib's ratio() is easy to clear by
+    accident on short strings (a 3-letter OCR fragment like "AIA", read
+    off a jersey badge, scored 0.857 against the real player "Aina" in
+    testing). Since results are capped at `max_players` by score, even one
+    such false positive can outrank and silently displace a correct but
+    lower-scoring match -- this happened for real with "Guéhi" until this
+    threshold was added."""
+    candidates = _ocr_candidates(raw_text)
+
+    names = [_strip_accents(n).lower() for n in pool_df["web_name"].astype(str)]
     ids = pool_df["id"].tolist()
 
     best_match: dict = {}
     for cand in candidates:
-        cand_lower = cand.lower()
+        cand_lower = _strip_accents(cand).lower()
+        effective_min = max(min_score, 0.9) if len(cand) <= 4 else min_score
         best_id, best_score = None, 0.0
         for name, pid in zip(names, ids):
-            score = difflib.SequenceMatcher(None, cand_lower, name.lower()).ratio()
+            score = difflib.SequenceMatcher(None, cand_lower, name).ratio()
             if score > best_score:
                 best_score, best_id = score, pid
-        if best_id is not None and best_score >= min_score:
+        if best_id is not None and best_score >= effective_min:
             if best_id not in best_match or best_score > best_match[best_id]:
                 best_match[best_id] = best_score
 
@@ -1166,7 +1232,12 @@ class TeamPhotoHandler(tornado.web.RequestHandler):
             return
 
         try:
-            raw_text = pytesseract.image_to_string(image)
+            # PSM 6 ("assume a single uniform block of text") reads this
+            # kind of image far more reliably than tesseract's default
+            # (PSM 3, full automatic page segmentation) -- verified against
+            # a real FPL app screenshot, see _preprocess_for_ocr's comment.
+            processed = _preprocess_for_ocr(image)
+            raw_text = pytesseract.image_to_string(processed, config="--psm 6")
         except Exception as exc:  # noqa: BLE001 -- e.g. tesseract binary missing at runtime
             render(self, "team.html",
                   error=f"OCR couldn't run on this image ({exc}). Use your team ID instead.")
