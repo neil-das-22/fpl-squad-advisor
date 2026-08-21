@@ -1243,13 +1243,24 @@ def _render_squad_page(handler, squad_df: pd.DataFrame, manager_name: str, team_
           gw_start=MULTI_GW_START, gw_end=MULTI_GW_START + MULTI_GW_LENGTH - 1)
 
 
-def _friendly_lookup_error(exc: Exception, entry_id: int) -> str:
+def _friendly_lookup_error(exc: Exception, entry_id: int, *,
+                           stage: str = "entry", gameweek: int | None = None) -> str:
     """Turn whatever exception the live FPL lookup raised into a message
     that actually helps a real (non-sandboxed) user fix it, instead of the
     old one-size-fits-all "unavailable in this environment" line -- that
     line was accurate for the dev sandbox this was originally built in
     (see fpl_client.py's module docstring) but unhelpful/misleading if a
-    real live lookup on a real machine failed for a different reason."""
+    real live lookup on a real machine failed for a different reason.
+
+    `stage` distinguishes which of the two FPL calls failed -- a 404 on
+    the entry lookup really does mean "no such team ID", but a 404 on the
+    *picks* lookup (entry itself fetched fine) means something completely
+    different and much more common: a real, valid team ID that just
+    hasn't saved a squad for that gameweek yet on the official site.
+    Confirmed against a real account during testing -- FPL happily
+    returns your entry with `entered_events: []` and then 404s on
+    every picks endpoint until you actually pick and save a team there.
+    Reporting that as "No FPL team found" was actively wrong."""
     text = str(exc)
 
     if isinstance(exc, requests.exceptions.SSLError) or "CERTIFICATE_VERIFY_FAILED" in text:
@@ -1268,12 +1279,39 @@ def _friendly_lookup_error(exc: Exception, entry_id: int) -> str:
         )
     if isinstance(exc, requests.HTTPError):
         status = getattr(exc.response, "status_code", None)
+        if status == 404 and stage == "picks":
+            gw_text = f"Gameweek {gameweek}" if gameweek else "this gameweek"
+            return (
+                f"Found FPL team {entry_id}, but it doesn't have a squad saved for {gw_text} yet. "
+                "Log into fantasy.premierleague.com, pick and save your squad there, then look it "
+                "up here again."
+            )
         if status == 404:
             return f"No FPL team found with ID {entry_id} -- double-check the number from your team's URL."
         if status == 429:
             return "The FPL API is rate-limiting requests right now -- wait a moment and try again."
         return f"The FPL API returned an error (HTTP {status}) for team {entry_id}."
     return f"Unexpected error reaching the FPL API: {text}"
+
+
+def _build_demo_squad() -> pd.DataFrame:
+    """Our own GW1 recommendation (built via the same tested
+    pick_squad()/pick_starting_xi() pipeline as reports/gw1_recommendation.md,
+    not an ad hoc top-N list) -- shown in place of a real squad when the
+    live FPL lookup can't return one, so the page itself is still
+    reviewable end to end."""
+    demo_squad_result = squad_optimizer.pick_squad(
+        POOL.buyable(),
+        must_include_ids=POOL.buyable()[
+            POOL.buyable()["web_name"] == "Haaland"]["id"].tolist(),
+    )
+    demo_xi = squad_optimizer.pick_starting_xi(demo_squad_result["squad"])
+    squad_df = pd.concat([demo_xi["starting_xi"], demo_xi["bench"]], ignore_index=True)
+    squad_df["is_captain"] = squad_df["xp"] == demo_xi["starting_xi"]["xp"].max()
+    squad_df["is_vice_captain"] = False
+    squad_df["multiplier"] = squad_df["is_captain"].map({True: 2, False: 1})
+    squad_df["squad_position"] = range(1, len(squad_df) + 1)
+    return squad_df
 
 
 class TeamHandler(tornado.web.RequestHandler):
@@ -1288,39 +1326,39 @@ class TeamHandler(tornado.web.RequestHandler):
         demo_mode = False
         bank = 0.0
         lookup_error = None
+        manager_name = team_name = squad_df = None
+
+        # Fetched in two separate stages (not one big try/except) because a
+        # 404 means something completely different at each stage: on the
+        # entry lookup it really does mean "no such team ID", but on the
+        # picks lookup it usually means a real, valid team ID that just
+        # hasn't saved a squad for this gameweek yet on the official site --
+        # confirmed against a real account, where FPL returns the entry
+        # fine (with entered_events: []) and then 404s on every picks
+        # endpoint until an actual squad gets saved there. The old
+        # single-try version reported that as "No FPL team found", which
+        # was simply wrong and sent people looking for a typo that didn't
+        # exist.
         try:
             entry = fpl_client.fetch_manager_entry(entry_id)
-            picks_payload = fpl_client.fetch_manager_picks(entry_id, DEFAULT_GAMEWEEK)
-            squad_df = fpl_client.parse_manager_squad(picks_payload, POOL.players)
-            manager_name = f"{entry.get('player_first_name', '')} {entry.get('player_last_name', '')}".strip()
-            team_name = entry.get("name", "Your team")
-            bank = float(picks_payload.get("entry_history", {}).get("bank", 0)) / 10.0
         except Exception as exc:  # noqa: BLE001 -- surfaced to the user, not swallowed
-            # The live lookup failed -- fall back to a labelled demo squad
-            # (our own GW1 recommendation, built via the same tested
-            # pick_squad()/pick_starting_xi() pipeline as
-            # reports/gw1_recommendation.md, not an ad hoc top-N list) so
-            # the page itself is still reviewable end to end. Unlike the
-            # old version of this handler, the *actual* reason is captured
-            # and shown (see _friendly_lookup_error) instead of silently
-            # swallowed behind one generic message -- that was hiding real,
-            # fixable causes (bad cert store, firewall, wrong team ID, FPL
-            # rate limiting) behind a message that only made sense for the
-            # network-restricted dev sandbox this was first built in.
+            entry = None
+            lookup_error = _friendly_lookup_error(exc, entry_id, stage="entry")
+
+        if entry is not None:
+            try:
+                picks_payload = fpl_client.fetch_manager_picks(entry_id, DEFAULT_GAMEWEEK)
+                squad_df = fpl_client.parse_manager_squad(picks_payload, POOL.players)
+                manager_name = f"{entry.get('player_first_name', '')} {entry.get('player_last_name', '')}".strip()
+                team_name = entry.get("name", "Your team")
+                bank = float(picks_payload.get("entry_history", {}).get("bank", 0)) / 10.0
+            except Exception as exc:  # noqa: BLE001
+                lookup_error = _friendly_lookup_error(exc, entry_id, stage="picks", gameweek=DEFAULT_GAMEWEEK)
+
+        if squad_df is None:
             demo_mode = True
             manager_name, team_name = "Demo Manager", "Preview Squad (demo data -- live FPL lookup unavailable)"
-            demo_squad_result = squad_optimizer.pick_squad(
-                POOL.buyable(),
-                must_include_ids=POOL.buyable()[
-                    POOL.buyable()["web_name"] == "Haaland"]["id"].tolist(),
-            )
-            demo_xi = squad_optimizer.pick_starting_xi(demo_squad_result["squad"])
-            squad_df = pd.concat([demo_xi["starting_xi"], demo_xi["bench"]], ignore_index=True)
-            squad_df["is_captain"] = squad_df["xp"] == demo_xi["starting_xi"]["xp"].max()
-            squad_df["is_vice_captain"] = False
-            squad_df["multiplier"] = squad_df["is_captain"].map({True: 2, False: 1})
-            squad_df["squad_position"] = range(1, len(squad_df) + 1)
-            lookup_error = _friendly_lookup_error(exc, entry_id)
+            squad_df = _build_demo_squad()
 
         if not demo_mode:
             _remember_entry_squad(self, entry_id)
