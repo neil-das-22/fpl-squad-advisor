@@ -13,11 +13,15 @@
     <a href="/">&larr; Back to overview</a>
   </p>
 
-  <form class="lookup-form" action="/team-lookup" method="get" onsubmit="return goToTeam(event)">
+  <form class="lookup-form" id="lookup-form" action="/team-lookup" method="get" onsubmit="return goToTeam(event)">
     <input type="text" id="team-id-input" name="id" placeholder="Your FPL Team ID, e.g. 1234567" inputmode="numeric" required>
-    <button class="btn" type="submit">Look up my team</button>
+    <button class="btn" type="submit" id="lookup-btn">Look up my team</button>
   </form>
-  <p class="hint">
+  <p class="hint" id="lookup-status" style="display:none;">
+    Looking up your team&hellip; this can take up to a minute if the site's been idle for a while
+    (it's on a free hosting tier that goes to sleep between visits).
+  </p>
+  <p class="hint" id="lookup-hint">
     Find your team ID in the URL when you're logged into fantasy.premierleague.com &mdash;
     it's the number after <code>/entry/</code>. No password needed, ever.
     <a href="https://www.livefpl.com/blog/fpl-team-id" target="_blank" rel="noopener">Need help finding it? &rarr;</a>
@@ -25,11 +29,15 @@
 
   <div class="or-divider"><span>or</span></div>
 
-  <form class="lookup-form" action="/team-photo" method="post" enctype="multipart/form-data">
+  <form class="lookup-form" id="photo-form" action="/team-photo" method="post" enctype="multipart/form-data" onsubmit="return submitPhoto(event)">
     <input type="file" name="photo" accept="image/*" required>
-    <button class="btn btn-secondary" type="submit">Import from photo</button>
+    <button class="btn btn-secondary" type="submit" id="photo-btn">Import from photo</button>
   </form>
-  <p class="hint">
+  <p class="hint" id="photo-status" style="display:none;">
+    Uploading and reading your photo&hellip; this can take up to a minute, especially right after
+    the site's been idle (free hosting tier) or for a large image.
+  </p>
+  <p class="hint" id="photo-hint">
     A screenshot of your "My Team" pitch view works best. We read the player names off the
     image and build your squad from what we recognize -- it can't always tell your exact bench
     order or captain, so double-check the result.
@@ -85,11 +93,31 @@
 
 {% block scripts %}
 <script>
+// Both lookups are normal full-page requests (not fetch/AJAX), so the
+// browser's own tab spinner already shows *something* is happening --
+// but the page itself looks completely frozen in the meantime, which on
+// this site's free hosting tier can genuinely take 30-60+ seconds after
+// a period of no traffic (cold start) or for a slow photo upload. These
+// just swap in a visible "this is working, hang on" message and disable
+// the button so it's obvious the click registered instead of looking dead.
 function goToTeam(e) {
   e.preventDefault();
   const id = document.getElementById('team-id-input').value.trim();
-  if (id) window.location.href = '/team/' + encodeURIComponent(id);
+  if (!id) return false;
+  document.getElementById('lookup-btn').disabled = true;
+  document.getElementById('lookup-btn').textContent = 'Looking up...';
+  document.getElementById('lookup-status').style.display = 'block';
+  document.getElementById('lookup-hint').style.display = 'none';
+  window.location.href = '/team/' + encodeURIComponent(id);
   return false;
+}
+
+function submitPhoto(e) {
+  document.getElementById('photo-btn').disabled = true;
+  document.getElementById('photo-btn').textContent = 'Reading photo...';
+  document.getElementById('photo-status').style.display = 'block';
+  document.getElementById('photo-hint').style.display = 'none';
+  return true;  // let the form actually submit
 }
 </script>
 {% end %}

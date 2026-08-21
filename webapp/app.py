@@ -136,6 +136,12 @@ _OCR_IGNORE_WORDS = {
 }
 
 
+_MAX_OCR_INPUT_DIM = 2800  # long edge, in px, BEFORE the 2x upscale below -- comfortably
+# above real phone/tablet screenshot resolutions (verified against the actual test
+# screenshot this OCR pipeline was tuned on, 1170x2532 -- stays completely untouched
+# by this cap) while still catching genuine camera photos, which run 3000-4000+px.
+
+
 def _preprocess_for_ocr(image: "PILImage.Image") -> "PILImage.Image":
     """Upscales, grayscales, and contrast-stretches the image before OCR.
 
@@ -146,8 +152,27 @@ def _preprocess_for_ocr(image: "PILImage.Image") -> "PILImage.Image":
     layout confusing its default page-segmentation). Upscaling 2x plus
     grayscale/autocontrast recovered all 15. Small, cheap operations --
     worth doing unconditionally rather than trying to detect when a photo
-    "needs" it."""
+    "needs" it.
+
+    First downscales anything bigger than _MAX_OCR_INPUT_DIM on its long
+    edge -- a real bug found from live traffic: a friend's upload of an
+    actual camera photo (not a screenshot) instead of a "My Team" screen
+    capture hit this handler with something like a 4032x3024 image, which
+    the old code would then blindly 2x to ~8000x6000 (48+ megapixels)
+    before handing it to tesseract. On Render's free tier (very limited
+    CPU/RAM), that's slow enough -- or memory-hungry enough -- to look
+    exactly like "the upload just hangs and never opens." Capping the
+    input first means the final upscaled image never exceeds roughly
+    5600px on its long edge regardless of what gets uploaded, while any
+    real phone/tablet screenshot (verified against the actual 1170x2532
+    test image this pipeline was tuned on) stays completely untouched by
+    this cap and preprocesses exactly as before."""
     w, h = image.size
+    longest = max(w, h)
+    if longest > _MAX_OCR_INPUT_DIM:
+        scale = _MAX_OCR_INPUT_DIM / longest
+        image = image.resize((max(1, round(w * scale)), max(1, round(h * scale))), PILImage.LANCZOS)
+        w, h = image.size
     upscaled = image.resize((w * 2, h * 2), PILImage.LANCZOS)
     return PILImageOps.autocontrast(PILImageOps.grayscale(upscaled))
 
@@ -1377,6 +1402,8 @@ class TeamPhotoHandler(tornado.web.RequestHandler):
     strongest legal XI from the players it found instead, and says so.
     """
 
+    _MAX_UPLOAD_BYTES = 20 * 1024 * 1024  # 20MB -- generous for any real screenshot or photo
+
     def post(self) -> None:
         files = self.request.files.get("photo")
         if not files:
@@ -1391,6 +1418,12 @@ class TeamPhotoHandler(tornado.web.RequestHandler):
                         "See the README for the one-line install command, or use your team ID instead.")
             return
 
+        if len(files[0]["body"]) > self._MAX_UPLOAD_BYTES:
+            render(self, "team.html",
+                  error="That image is too large (over 20MB) -- try a regular screenshot instead "
+                        "of a full-resolution camera photo, or use your team ID instead.")
+            return
+
         try:
             image = PILImage.open(io.BytesIO(files[0]["body"]))
         except Exception:  # noqa: BLE001
@@ -1403,8 +1436,17 @@ class TeamPhotoHandler(tornado.web.RequestHandler):
             # kind of image far more reliably than tesseract's default
             # (PSM 3, full automatic page segmentation) -- verified against
             # a real FPL app screenshot, see _preprocess_for_ocr's comment.
+            # timeout=25 is a hard safety net on top of _preprocess_for_ocr's
+            # own size cap -- Render's free tier has very limited CPU, and a
+            # tesseract call that never returns would otherwise hang this
+            # request forever instead of failing with a usable error.
             processed = _preprocess_for_ocr(image)
-            raw_text = pytesseract.image_to_string(processed, config="--psm 6")
+            raw_text = pytesseract.image_to_string(processed, config="--psm 6", timeout=25)
+        except RuntimeError as exc:
+            render(self, "team.html",
+                  error=f"That image took too long to process ({exc}). Try a smaller/clearer "
+                        "screenshot, or use your team ID instead.")
+            return
         except Exception as exc:  # noqa: BLE001 -- e.g. tesseract binary missing at runtime
             render(self, "team.html",
                   error=f"OCR couldn't run on this image ({exc}). Use your team ID instead.")
